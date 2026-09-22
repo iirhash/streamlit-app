@@ -5,6 +5,10 @@
 
 import streamlit as st
 from supabase import create_client
+import os, sys
+
+
+from config.settings import SUPABASE_URL, SUPABASE_KEY
 
 
 def get_supabase():
@@ -16,10 +20,7 @@ def get_supabase():
     """
     if "supabase_client" in st.session_state:
         return st.session_state["supabase_client"]
-
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def login(sap_number: str, password: str):
@@ -28,9 +29,7 @@ def login(sap_number: str, password: str):
     Converts SAP number to internal email format behind the scenes.
     Returns (success: bool, message: str)
     """
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    supabase = create_client(url, key)
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     email = f"{sap_number}@lrt-internal.com"
 
     try:
@@ -106,7 +105,7 @@ def show_login_form():
     with st.sidebar.form("login_form", clear_on_submit=True):
         sap    = st.text_input("SAP Number", placeholder="e.g. S12345")
         pw     = st.text_input("Password",   type="password")
-        submit = st.form_submit_button("Login", use_container_width=True)
+        submit = st.form_submit_button("Login", width="stretch")
 
         if submit:
             if not sap or not pw:
@@ -157,6 +156,6 @@ def show_user_info():
         unsafe_allow_html=True,
     )
 
-    if st.sidebar.button("🚪 Logout", use_container_width=True):
+    if st.sidebar.button("🚪 Logout", width="stretch"):
         logout()
         st.rerun()
