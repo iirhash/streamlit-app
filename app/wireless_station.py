@@ -16,22 +16,25 @@ import os
 import sys
 import threading
 import time
-import cv2
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.login import get_supabase
 
 # ── Import from wireless station ──────────────────────────────
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dji_wireless_station import (
-    run_capture_pipeline,
-    gray_world_balance,
-    apply_glare_mode,
-    RTMP_RECEIVE_URL,
-    TEMP_DIR,
-    CAPTURE_ANGLES,
-)
+try:
+    import cv2
+    from dji_wireless_station import (
+        run_capture_pipeline,
+        gray_world_balance,
+        apply_glare_mode,
+        RTMP_RECEIVE_URL,
+        TEMP_DIR,
+        CAPTURE_ANGLES,
+    )
+    CV2_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    CV2_AVAILABLE = False
 
 # ── LRV data (same as camera station) ─────────────────────────
 LRV_MODELS = {
@@ -146,9 +149,20 @@ def _run_yolo_on_frames(supabase, asset_id, technician_name, session_id, capture
 
 
 def show():
-    st.markdown("## 📡 Wireless Camera Station")
+    st.markdown("## 📡 DJI Wireless Station (Mobile)")
     st.caption("Operate the DJI wireless inspection station from your browser — works on phone and desktop.")
     st.divider()
+
+    # ── Check if running on cloud ──────────────────────────────
+    if not CV2_AVAILABLE:
+        st.warning(
+            "📡 **DJI Wireless Station is not available on Streamlit Cloud.**\n\n"
+            "This feature requires:\n"
+            "- A local RTMP server (`rtmp_server.js`) running on your laptop\n"
+            "- The DJI camera streaming to your local network\n\n"
+            "Please access this feature by running the app **locally on your laptop** and connecting from your phone browser via `http://[laptop IP]:8501`."
+        )
+        return
 
     # ── Ensure current_page stays on this page during reruns ──
     st.session_state["current_page"] = "📡 DJI Wireless Station (Mobile)"
