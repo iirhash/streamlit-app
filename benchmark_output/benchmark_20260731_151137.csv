@@ -1,0 +1,4 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+Roboflow v7,DJI_20260721142233_0004_D.JPG,5617.8,2,wear,0.8941148519515991,0.882,wear
+Roboflow v7,DJI_20260721142238_0005_D.JPG,2840.9,1,wear,0.8707985281944275,0.871,wear
+Roboflow v7,DJI_20260721142347_0011_D.JPG,2764.7,1,wear,0.9114668965339661,0.911,wear

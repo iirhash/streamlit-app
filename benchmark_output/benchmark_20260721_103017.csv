@@ -1,0 +1,11 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+YOLOv8m,collector_assembly.jpg,443.8,0,none,0.0,0.0,none
+YOLOv8m,collector_not_rotated_1groove.jpg,569.0,0,none,0.0,0.0,none
+YOLOv8m,collector_rotated_2groove.jpg,296.8,0,none,0.0,0.0,none
+YOLOv8m,collector_shoe_1groove_closeup.jpg,411.1,1,refrigerator,0.301,0.301,none
+YOLOv8m,collector_shoe_2groove_closeup.jpg,517.4,1,refrigerator,0.502,0.502,none
+YOLOv11m,collector_assembly.jpg,697.4,0,none,0.0,0.0,none
+YOLOv11m,collector_not_rotated_1groove.jpg,305.1,1,refrigerator,0.274,0.274,none
+YOLOv11m,collector_rotated_2groove.jpg,317.1,1,refrigerator,0.255,0.255,none
+YOLOv11m,collector_shoe_1groove_closeup.jpg,446.2,0,none,0.0,0.0,none
+YOLOv11m,collector_shoe_2groove_closeup.jpg,404.9,1,refrigerator,0.524,0.524,none

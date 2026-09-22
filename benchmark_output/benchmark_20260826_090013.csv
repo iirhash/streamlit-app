@@ -1,0 +1,4 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+Roboflow v11,DJI_20260721142233_0004_D.JPG,6422.4,2,collector_shoe,0.9526628851890564,0.931,other
+Roboflow v11,DJI_20260721142238_0005_D.JPG,3156.3,3,collector_shoe,0.9417235851287842,0.894,other
+Roboflow v11,DJI_20260721142347_0011_D.JPG,3126.1,2,wear,0.9150280952453613,0.905,wear

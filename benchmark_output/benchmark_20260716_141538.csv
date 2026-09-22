@@ -1,0 +1,5 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+YOLOv8m,manual_20260625_160401.jpg,312.8,0,none,0.0,0.0,none
+YOLOv8m,manual_20260625_160405.jpg,228.6,2,cup,0.812,0.737,other
+YOLOv11m,manual_20260625_160401.jpg,346.1,1,hot dog,0.294,0.294,none
+YOLOv11m,manual_20260625_160405.jpg,302.0,1,hot dog,0.416,0.416,none

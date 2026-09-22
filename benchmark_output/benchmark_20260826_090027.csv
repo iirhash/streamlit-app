@@ -1,0 +1,6 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+Roboflow v11,collector_assembly.jpg,1480.5,7,collector_shoe,0.9440120458602905,0.847,other
+Roboflow v11,collector_not_rotated_1groove.jpg,1830.8,2,wear,0.8926802277565002,0.698,wear
+Roboflow v11,collector_rotated_2groove.jpg,1830.0,3,collector_shoe,0.9104881882667542,0.872,other
+Roboflow v11,collector_shoe_1groove_closeup.jpg,646.3,3,wear,0.8881474137306213,0.638,wear
+Roboflow v11,collector_shoe_2groove_closeup.jpg,1188.8,3,wear,0.8893709182739258,0.868,wear

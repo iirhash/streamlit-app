@@ -1,0 +1,7 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+YOLOv8m,focus_20260618_085533.jpg,439.9,0,none,0.0,0.0,none
+YOLOv8m,lighting_20260618_085546.jpg,326.8,0,none,0.0,0.0,none
+YOLOv8m,resolution_20260618_085619.jpg,337.7,0,none,0.0,0.0,none
+YOLOv11m,focus_20260618_085533.jpg,315.9,0,none,0.0,0.0,none
+YOLOv11m,lighting_20260618_085546.jpg,242.2,0,none,0.0,0.0,none
+YOLOv11m,resolution_20260618_085619.jpg,280.2,1,sink,0.258,0.258,none

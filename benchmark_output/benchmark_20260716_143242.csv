@@ -1,0 +1,7 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+YOLOv8m,capture_20260716_142931.jpg,526.8,2,vase,0.739,0.547,other
+YOLOv8m,capture_20260716_142934.jpg,572.7,2,vase,0.854,0.552,other
+YOLOv8m,capture_20260716_142940.jpg,621.6,1,vase,0.878,0.878,other
+YOLOv11m,capture_20260716_142931.jpg,1080.1,0,none,0.0,0.0,none
+YOLOv11m,capture_20260716_142934.jpg,825.7,0,none,0.0,0.0,none
+YOLOv11m,capture_20260716_142940.jpg,833.0,0,none,0.0,0.0,none

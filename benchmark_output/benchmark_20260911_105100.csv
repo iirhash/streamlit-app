@@ -1,0 +1,3 @@
+model,image,inference_ms,detections,top_label,top_conf,avg_conf,defect
+Roboflow v16,manual_20260625_160401.jpg,1481.8,0,none,0.0,0.0,none
+Roboflow v16,manual_20260625_160405.jpg,2326.4,0,none,0.0,0.0,none
