@@ -33,8 +33,14 @@ try:
         CAPTURE_ANGLES,
     )
     CV2_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
+except Exception:
     CV2_AVAILABLE = False
+    RTMP_RECEIVE_URL = ""
+    CAPTURE_ANGLES = [
+        "Angle camera 15° to the LEFT",
+        "Angle camera CENTRE (0°) — straight on",
+        "Angle camera 15° to the RIGHT",
+    ]
 
 # ── LRV data (same as camera station) ─────────────────────────
 LRV_MODELS = {
