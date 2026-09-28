@@ -22,7 +22,7 @@ if not st.session_state.get("access_granted", False):
     show_landing()
     st.stop()
 
-# ── Auto refresh every 30 seconds without losing session ──────
+# ── Auto refresh every 5 minutes without losing session ───────
 if "last_refresh" not in st.session_state:
     st.session_state["last_refresh"] = time.time()
 
@@ -38,6 +38,9 @@ if not _user_is_busy and time.time() - st.session_state["last_refresh"] > 300:
     st.session_state["last_refresh"] = time.time()
     st.rerun()
 
+# ── Field Manual gate (resets every browser session) ──────────
+_manual_confirmed = st.session_state.get("field_manual_confirmed", False)
+
 # ── Sidebar ────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Condition Monitoring")
@@ -45,29 +48,46 @@ with st.sidebar:
 
     role = get_role() if is_logged_in() else None
 
-    # Build nav based on role
-    nav_options = [
+    # Full nav list — Field Manual is always first
+    _all_nav = [
+        "📖 Visual Inspection Manual",
         "🔍 Defect Viewer",
         "👟 Collector Shoe",
         "📱 Mobile Capture Station",
         "📡 DJI Wireless Station (Mobile)",
     ]
 
-    # ── Remember current page across reruns ───────────────────
-    # Default to Defect Viewer on first load
-    current_page = st.session_state.get("current_page", "🔍 Defect Viewer")
-    if current_page not in nav_options:
-        current_page = "🔍 Defect Viewer"
+    if _manual_confirmed:
+        nav_options = _all_nav
+    else:
+        nav_options = _all_nav
+
+    # Force to Field Manual if not yet confirmed
+    if not _manual_confirmed:
+        current_page = "📖 Visual Inspection Manual"
         st.session_state["current_page"] = current_page
+    else:
+        current_page = st.session_state.get("current_page", "🔍 Defect Viewer")
+        if current_page not in nav_options:
+            current_page = "🔍 Defect Viewer"
+            st.session_state["current_page"] = current_page
+
     current_idx = nav_options.index(current_page)
+
+    def _nav_label(opt):
+        """Grey out locked tabs with a lock icon."""
+        if not _manual_confirmed and opt != "📖 Visual Inspection Manual":
+            return f"🔒 {opt}"
+        return opt
 
     page = st.radio(
         "Navigation",
         nav_options,
         index=current_idx,
+        format_func=_nav_label,
         label_visibility="collapsed",
     )
-    # Persist the selection immediately
+    # Persist the selection
     st.session_state["current_page"] = page
 
     st.markdown("---")
@@ -78,10 +98,8 @@ with st.sidebar:
     st.markdown("---")
 
     if is_logged_in():
-        # Show logged-in user info
         show_user_info()
     else:
-        # Technician access indicator
         st.markdown(
             """
             <div style="
@@ -101,7 +119,6 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-        # ── Staff login expander ───────────────────────────────
         with st.expander("🔐 Staff Login"):
             with st.form("sidebar_login_form", clear_on_submit=True):
                 sap = st.text_input("SAP Number", placeholder="e.g. S12345")
@@ -122,35 +139,268 @@ with st.sidebar:
                             st.error(message)
 
 
+# ── Helper: block locked pages ────────────────────────────────
+def _require_manual():
+    if not _manual_confirmed:
+        st.warning("📖 Please read the Field Manual first.")
+        st.stop()
+
+
 # ── Load the right page ────────────────────────────────────────
-if page == "📡 Measurement Input":
-    from app import input_form
-    input_form.show()
+
+if page == "📖 Visual Inspection Manual":
+    st.markdown("# 📖 Visual Inspection Field Manual")
+    st.markdown("*Read this before using the system. Your confirmation unlocks all other tabs.*")
+    st.markdown("---")
+
+    # ── Section 1: Pre-Inspection Checks ──────────────────────
+    st.markdown("## ✅ 1. Pre-Inspection Checks")
+    st.markdown("""
+Before capturing any images, ensure the following:
+
+| Check | Requirement |
+|-------|-------------|
+| 🔦 Lighting | Adequate and uniform — avoid direct glare or heavy shadows on the shoe surface |
+| 📷 Camera | DJI Action 3 powered on, SD card inserted, lens clean |
+| 🚆 LRV | Stationary and secured before going trackside |
+| 🦺 PPE | High-visibility vest, safety boots, and gloves worn |
+| 📋 Shoe ID | Confirm collector shoe position label (e.g. CS-LRV00-1U) matches the physical shoe |
+    """)
+
+    st.markdown("---")
+
+    # ── Section 2: Collector Shoe Positions ───────────────────
+    st.markdown("## 🚃 2. Collector Shoe Positions")
+    st.markdown("""
+Each LRV bogie has **4 collector shoes**, labelled by position and side:
+
+| Label | Position | Side |
+|-------|----------|------|
+| **CS-LRV00-1U** | Position 1 | Upper |
+| **CS-LRV00-1L** | Position 1 | Lower |
+| **CS-LRV00-2U** | Position 2 | Upper |
+| **CS-LRV00-2L** | Position 2 | Lower |
+| **CS-LRV00-3U** | Position 3 | Upper |
+| **CS-LRV00-3L** | Position 3 | Lower |
+| **CS-LRV00-4U** | Position 4 | Upper |
+| **CS-LRV00-4L** | Position 4 | Lower |
+
+> 📌 **Always confirm the shoe label before capturing.** Mislabelling will corrupt the maintenance history.
+    """)
+
+    st.markdown("---")
+
+    # ── Section 3: 3-Angle Capture Procedure ──────────────────
+    st.markdown("## 📷 3. Three-Angle Capture Procedure")
+    st.markdown("""
+Each shoe must be photographed from **3 angles** per inspection session.
+This ensures full surface coverage for the YOLO defect model.
+
+| Shot | Angle | Purpose |
+|------|-------|---------|
+| **Shot 1** | Left 15° | Capture left edge wear and side cracks |
+| **Shot 2** | Centre 0° | Main surface — pores, scuff marks, oxidation |
+| **Shot 3** | Right 15° | Capture right edge wear and symmetry check |
+    """)
+
+    _c1, _c2, _c3 = st.columns(3)
+    with _c1:
+        st.image("app/assets/left_15.jpg", caption="Shot 1 — Left 15°", use_container_width=True)
+    with _c2:
+        st.image("app/assets/centre_0.jpg", caption="Shot 2 — Centre 0°", use_container_width=True)
+    with _c3:
+        st.image("app/assets/right_15.jpg", caption="Shot 3 — Right 15°", use_container_width=True)
+
+    st.markdown("""
+**How to capture:**
+1. Open the **📱 Mobile Capture Station** or **📡 DJI Wireless Station** tab, or launch the **Wired or Wireless Station from Workstation (Defect Viewer Page)**
+2. Select the shoe ID from the dropdown
+3. Take Shot 1 (Left 15°), Shot 2 (Centre 0°), Shot 3 (Right 15°) in order
+4. Review the YOLO detection overlay before submitting
+    """)
+
+    st.markdown("---")
+
+    # ── Section 4: Using the Camera Stations ──────────────────
+    st.markdown("## 📡 4. Camera Stations")
+    st.markdown("""
+**4 capture methods are available.** Choose based on your setup at the depot.
+    """)
+
+    st.markdown("### 🔌 Method 1 — Wired Station (DJI Action 3 via USB)")
+    _img1_col, _img1b_col = st.columns(2)
+    _img1_col.image("app/assets/method1_wired.png", caption="DJI Action 3 connected to laptop via USB-C", use_container_width=True)
+    _img1b_col.image("app/assets/method1_wired_popup.png", caption="Capture Tips popup — shown before the station launches", use_container_width=True)
+    st.markdown("""
+**When to use:** LRV is stationary in the depot, laptop is nearby, cable can reach the camera.
+
+**Steps:**
+1. Connect the DJI Action 3 to the laptop using the USB-C cable
+2. Power on the DJI Action 3
+3. On the dashboard, go to **🔍 Defect Viewer**
+4. Click **🚀 Launch Wired Station** — a camera setup window will open on the desktop
+5. Select the shoe ID in the popup window
+6. Follow the on-screen prompts to capture Left 15°, Centre 0°, Right 15° shots
+7. The station will auto-submit each photo to the YOLO detection pipeline
+    """)
+
+    st.markdown("### 📡 Method 2 — Wireless Station (DJI Action 3 via Wi-Fi / RTMP)")
+    _img2_col, _ = st.columns([0.6, 0.4])
+    _img2_col.image("app/assets/method2_wireless.png", caption="DJI Wireless Station popup — enter RTMP URL and click Connect", use_container_width=True)
+    st.markdown("**DJI Mimo App Setup:**")
+    _m2a, _m2b, _m2gap = st.columns([0.25, 0.25, 0.5])
+    _m2a.image("app/assets/method2_mimo_platform.png", caption="Step 1 — Select RTMP as livestream platform", use_container_width=True)
+    _m2b.image("app/assets/method2_mimo_settings.png", caption="Step 2 — Enter RTMP URL, set 1080p UHD, Auto quality", use_container_width=True)
+    _m2c, _ = st.columns([0.35, 0.65])
+    _m2c.image("app/assets/method2_mimo_streaming.png", caption="Step 3 — DJI Action 3 preparing to livestream", use_container_width=True)
+    st.markdown("""
+**When to use:** LRV is at a distance, cable cannot reach, or you prefer a wireless setup.
+
+**Steps:**
+1. Power on the DJI Action 3 and connect it to the depot Wi-Fi network
+2. Confirm your laptop is on the **same Wi-Fi network** as the DJI camera
+3. On the dashboard, go to **🔍 Defect Viewer**
+4. Click **🚀 Launch Wireless Station** — a live stream window will open on the desktop
+5. Enter the RTMP stream URL shown in DJI Mimo into the station window (e.g. `rtmp://10.x.x.x:1936/live/stream`)
+6. Capture frames using the on-screen capture button for each angle (Left 15°, Centre 0°, Right 15°)
+7. The station will submit captured frames to the YOLO detection pipeline
+
+> ⚠️ **Before starting:** Ensure `rtmp_server.js` is running on the workstation (`node rtmp_server.js`). If no live feed appears, check that the DJI camera and laptop are on the same network and the RTMP address is correct.
+    """)
+
+    st.markdown("### 📱 Method 3 — Mobile Capture Station (Phone Camera)")
+    _m3_img, _m3_txt = st.columns([0.25, 0.75])
+    _m3_img.image("app/assets/method3_mobile.png", caption="Mobile Capture Station — open in your phone browser", use_container_width=True)
+    with _m3_txt:
+        st.markdown("""
+**When to use:** Quick spot checks or on-the-go capture without the DJI camera.
+
+**Steps:**
+1. Open the dashboard on your mobile browser
+2. Navigate to the **📱 Mobile Capture Station** tab
+3. Select the shoe ID from the dropdown
+4. Use your phone camera to capture Left 15°, Centre 0°, Right 15° shots
+5. Submit each photo — the system will run YOLO detection automatically
+        """)
+
+    st.markdown("### 📡 Method 4 — DJI Wireless Station (Mobile Browser)")
+    _m4_img, _m4_txt = st.columns([0.25, 0.75])
+    _m4_img.image("app/assets/method4_wireless_mobile.png", caption="DJI Wireless Station (Mobile) — connect to stream from your phone browser", use_container_width=True)
+    with _m4_txt:
+        st.markdown("""
+**When to use:** You want to monitor or capture wirelessly from your phone while the DJI streams over Wi-Fi.
+
+**Steps:**
+1. Power on the DJI Action 3 and connect it to the depot Wi-Fi network
+2. Open your phone browser and navigate to **`http://10.243.253.63:8501`** (depot local network — do NOT use the streamlit.app URL)
+3. Navigate to the **📡 DJI Wireless Station (Mobile)** tab
+4. Enter the RTMP stream URL and click **Connect to Stream**
+5. Capture frames for each angle (Left 15°, Centre 0°, Right 15°) and submit
+
+> ⚠️ **Before starting:** Ensure `rtmp_server.js` is running on the workstation (`node rtmp_server.js`). Ensure the DJI camera and your mobile device are on the same Wi-Fi network before opening this tab.
+
+> 📷 **DJI Mimo setup:** Refer to **Method 2** above for step-by-step screenshots on configuring the DJI Mimo app (select RTMP platform, enter stream URL, set 1080p UHD).
+        """)
+
+    st.markdown("---")
+
+    # ── Section 5: Understanding YOLO Results ─────────────────
+    st.markdown("## 🔍 5. Understanding YOLO Detection Results")
+    st.markdown("""
+After an image is submitted, the system runs an AI defect scan (Roboflow YOLOv11).
+
+**Result indicators:**
+
+| Icon | Meaning |
+|------|---------|
+| 🔍 ✅ **Auto-confirmed** | High confidence detection (≥85%) — logged automatically |
+| 🔍 ⚠️ **Needs Review** | Low confidence or scuff marks detected — requires IC sign-off |
+| ✅ **No Defect** | Model found no defects above threshold |
+
+**Defect classes the model detects:**
+
+`wear` · `crack` · `pore` · `scratch` · `scuff marks` · `oxidation` · `water mark` · `none`
+
+> 📌 **Scuff marks** use a lower threshold (50%) due to their subtle appearance. These will always go to the **Needs Review** queue.
+
+**What to do after detection:**
+- Auto-confirmed results are logged to the database immediately
+- "Needs Review" items appear in the **🔍 Defect Viewer** with a blinking ⚠️ button
+- The IC (In-charge) must mark each reviewed item before it is finalised
+    """)
+
+    st.markdown("---")
+
+    # ── Section 6: When to Escalate ───────────────────────────
+    st.markdown("## ⚠️ 6. When to Escalate")
+    st.markdown("""
+Visual inspection does not replace physical measurement. Escalate to the IC if you observe:
+
+- **Visible cracking** running across the width of the shoe
+- **Deep scoring** or material loss visible to the naked eye
+- **Severe oxidation** covering more than 30% of the contact surface
+- Any defect that the YOLO model flags repeatedly across 3+ sessions
+
+> 🔴 **Do not operate the LRV if you suspect a shoe is at or near replacement threshold.** Contact the IC immediately.
+    """)
+
+    st.markdown("---")
+
+    # ── Confirmation checkbox at the bottom ───────────────────
+    st.markdown("### 📋 Confirmation")
+    confirmed = st.checkbox(
+        "I have read and understood this field manual — the capture steps, "
+        "the camera angles, and the defect classification results.",
+        value=False,
+        key="fm_checkbox",
+    )
+
+    if confirmed:
+        st.session_state["field_manual_confirmed"] = True
+        st.success("✅ Field Manual confirmed. All tabs are now unlocked.")
+        st.balloons()
+        time.sleep(1)
+        st.session_state["current_page"] = "🔍 Defect Viewer"
+        st.rerun()
+    else:
+        st.info("☝️ Tick the box above to unlock the rest of the dashboard.")
 
 elif page == "📱 Mobile Capture Station":
+    _require_manual()
     from app import mobile_capture_station
     mobile_capture_station.show()
 
 elif page == "📡 DJI Wireless Station (Mobile)":
+    _require_manual()
     from app import wireless_station
     wireless_station.show()
 
+elif page == "🔍 Defect Viewer":
+    _require_manual()
+    from app import defect_viewer
+    defect_viewer.show()
+
+elif page == "👟 Collector Shoe":
+    _require_manual()
+    from app import collector_shoe
+    collector_shoe.show()
+
+elif page == "📡 Measurement Input":
+    _require_manual()
+    from app import input_form
+    input_form.show()
+
 elif page == "📊 Dashboard":
+    _require_manual()
     from app import dashboard
     dashboard.show()
 
 elif page == "🗂 History":
+    _require_manual()
     from app import history
     history.show()
 
-elif page == "🔍 Defect Viewer":
-    from app import defect_viewer
-    defect_viewer.show()
-
 elif page == "⚙️ Threshold Settings":
+    _require_manual()
     st.markdown("## ⚙️ Threshold Settings")
     st.info("Management threshold editor coming soon.")
-
-elif page == "👟 Collector Shoe":
-    from app import collector_shoe
-    collector_shoe.show()
