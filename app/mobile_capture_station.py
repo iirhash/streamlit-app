@@ -236,7 +236,7 @@ def show():
 
             **Tips for best results:**
             - Hold the phone steady before capturing
-            - **Rotate phone to landscape** with volume buttons facing **down**
+            - **Rotate phone to landscape** with the charging port facing **right**
             - Ensure the collector shoe fills most of the frame
             - Avoid strong shadows or direct light reflections
             - Use the rear camera for best quality
@@ -334,6 +334,8 @@ def show():
             {angle}</div>
             <div style="font-size:13px;color:#1E293B;margin-top:6px;">
             Position your phone at this angle and take the photo below.</div>
+            <div style="font-size:12px;color:#065f52;margin-top:8px;font-weight:600;">
+            📱 Hold phone in landscape — charging port facing right</div>
             </div>""",
             unsafe_allow_html=True
         )
