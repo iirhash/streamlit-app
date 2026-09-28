@@ -1397,7 +1397,7 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
     status_text.text("Building report cover page...")
     progress_bar.progress(5)
 
-    title = doc.add_heading("LRT Collector Shoe", level=1)
+    title = doc.add_heading("LRV Collector Shoe", level=1)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if title.runs:
         title.runs[0].font.size = Pt(24)
@@ -1810,7 +1810,7 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
     # ── Disclaimer ─────────────────────────────────────────────
     doc.add_heading("Disclaimer", level=1)
     disclaimer = doc.add_paragraph(
-        "This report is generated automatically by the LRT Collector Shoe Visual Inspection System. "
+        "This report is generated automatically by the LRV Collector Shoe Visual Inspection System. "
         "Confidence scores reflect the YOLO v11 model's visual assessment and should be verified "
         "against physical depth gauge measurements before maintenance decisions are made. "
         "Physical measurements remain the ground truth for wear severity classification."
@@ -2199,11 +2199,11 @@ def show():
     version    = model_info.get("version", "")
 
     if trained:
-        st.success(f"🤖 Active model: **{model_name}** (v{version}) — Custom trained LRT model")
+        st.success(f"🤖 Active model: **{model_name}** (v{version}) — Custom trained LRV model")
     else:
         st.warning(
             f"⚠️ Active model: **{model_name}** — Generic pre-trained weights. "
-            f"Defect classifications may be unreliable until custom LRT model is trained."
+            f"Defect classifications may be unreliable until custom LRV model is trained."
         )
 
     # ── Manual refresh button ──────────────────────────────────
@@ -2226,7 +2226,8 @@ def show():
 
     # ── Technician view (no login) ─────────────────────────────
     if not is_logged_in():
-        # ── Launch Camera Station button ───────────────────────
+        # ── Launch Camera Station from Workstation ─────────────
+        st.markdown("### 📷 Launch Camera Station from Workstation")
         st.markdown(
             """
             <style>
@@ -2276,20 +2277,6 @@ def show():
                 except Exception as e:
                     st.error(f"❌ Could not launch wired camera station: {e}")
 
-            st.markdown(
-                """<div style="text-align:center;margin-top:4px;">
-                <span style="font-size:11px;color:#64748B;">or</span>
-                </div>""",
-                unsafe_allow_html=True
-            )
-            if st.button(
-                "📱 Mobile Capture Station",
-                use_container_width=True,
-                key="launch_mobile_capture"
-            ):
-                st.session_state["current_page"] = "📱 Mobile Capture Station"
-                st.rerun()
-
         # ── Wireless camera card ───────────────────────────────
         with col_right:
             st.markdown(
@@ -2324,22 +2311,8 @@ def show():
                 except Exception as e:
                     st.error(f"❌ Could not launch wireless camera station: {e}")
 
-            st.markdown(
-                """<div style="text-align:center;margin-top:4px;">
-                <span style="font-size:11px;color:#64748B;">or</span>
-                </div>""",
-                unsafe_allow_html=True
-            )
-            if st.button(
-                "📱 Launch Wireless Station on Mobile",
-                use_container_width=True,
-                key="launch_wireless_mobile"
-            ):
-                st.session_state["current_page"] = "📡 DJI Wireless Station (Mobile)"
-                st.rerun()
-
         st.divider()
-        st.info("👷 Technician View — items marked ⚠️ REVIEW need management verification.")
+        st.info("👷 Technician View — items marked ⚠️ REVIEW need IC verification.")
 
         supabase_anon = get_supabase()
 
@@ -2375,7 +2348,7 @@ def show():
                     .execute()
 
                 if not review_records.data:
-                    st.success("✅ No detections currently need management review.")
+                    st.success("✅ No detections currently need IC review.")
                 else:
                     # Group by session_id
                     from collections import defaultdict
@@ -2387,7 +2360,7 @@ def show():
                             rev_session_order.append(sid)
                         rev_sessions[sid].append(rec)
 
-                    st.caption(f"{len(rev_session_order)} capture(s) awaiting management verification")
+                    st.caption(f"{len(rev_session_order)} capture(s) awaiting IC verification")
 
                     for sid in rev_session_order:
                         recs = rev_sessions[sid]
@@ -2413,7 +2386,7 @@ def show():
                                     """<div style="background:#FEF3C7;border:1px solid #F59E0B;
                                     border-radius:6px;padding:6px 10px;text-align:center;font-size:11px;">
                                     <b style="color:#92400E;">⚠️ REVIEW</b><br>
-                                    <span style="font-size:10px;color:#92400E;">Inform management</span>
+                                    <span style="font-size:10px;color:#92400E;">Inform IC</span>
                                     </div>""", unsafe_allow_html=True
                                 )
 
