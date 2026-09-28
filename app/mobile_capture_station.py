@@ -236,6 +236,7 @@ def show():
 
             **Tips for best results:**
             - Hold the phone steady before capturing
+            - **Rotate phone to landscape** with volume buttons facing **down**
             - Ensure the collector shoe fills most of the frame
             - Avoid strong shadows or direct light reflections
             - Use the rear camera for best quality
