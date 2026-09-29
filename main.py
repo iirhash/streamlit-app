@@ -2,6 +2,7 @@
 # ── Entry point ────────────────────────────────────────────────
 # Run with: streamlit run main.py
 
+import os
 import streamlit as st
 import time
 from datetime import datetime
@@ -53,8 +54,7 @@ with st.sidebar:
         "📖 Visual Inspection Manual",
         "🔍 Defect Viewer",
         "👟 Collector Shoe",
-        "📱 Mobile Capture Station",
-        "📡 DJI Wireless Station (Mobile)",
+        "🚀 Launch Camera Stations",
     ]
 
     if _manual_confirmed:
@@ -65,6 +65,10 @@ with st.sidebar:
     # Force to Field Manual if not yet confirmed
     if not _manual_confirmed:
         current_page = "📖 Visual Inspection Manual"
+        st.session_state["current_page"] = current_page
+    elif st.session_state.get("camera_station_sub"):
+        # Inside a camera station sub-page — lock nav to Launch Camera Stations
+        current_page = "🚀 Launch Camera Stations"
         st.session_state["current_page"] = current_page
     else:
         current_page = st.session_state.get("current_page", "🔍 Defect Viewer")
@@ -87,8 +91,9 @@ with st.sidebar:
         format_func=_nav_label,
         label_visibility="collapsed",
     )
-    # Persist the selection
-    st.session_state["current_page"] = page
+    # Only persist the radio selection when not inside a camera station sub-page
+    if not st.session_state.get("camera_station_sub"):
+        st.session_state["current_page"] = page
 
     st.markdown("---")
     st.markdown(f"🟢 **Live** — {datetime.now().strftime('%d %b %Y, %H:%M')}")
@@ -365,15 +370,171 @@ Visual inspection does not replace physical measurement. Escalate to the IC if y
     else:
         st.info("☝️ Tick the box above to unlock the rest of the dashboard.")
 
-elif page == "📱 Mobile Capture Station":
+elif page == "🚀 Launch Camera Stations":
     _require_manual()
-    from app import mobile_capture_station
-    mobile_capture_station.show()
+    import subprocess
+    import sys
 
-elif page == "📡 DJI Wireless Station (Mobile)":
-    _require_manual()
-    from app import wireless_station
-    wireless_station.show()
+    # ── Sub-page routing for mobile stations ──────────────────
+    _mobile_sub = st.session_state.get("camera_station_sub", None)
+
+    if _mobile_sub == "mobile":
+        from app import mobile_capture_station
+        if st.button("← Back to Launch Camera Stations"):
+            st.session_state["camera_station_sub"] = None
+            st.session_state["current_page"] = "🚀 Launch Camera Stations"
+            st.rerun()
+        mobile_capture_station.show()
+        st.stop()
+
+    elif _mobile_sub == "dji_wireless_mobile":
+        from app import wireless_station
+        if st.button("← Back to Launch Camera Stations"):
+            st.session_state["camera_station_sub"] = None
+            st.session_state["current_page"] = "🚀 Launch Camera Stations"
+            st.rerun()
+        wireless_station.show()
+        st.stop()
+
+    # ── Main Launch Camera Stations page ──────────────────────
+    st.markdown("# 🚀 Launch Camera Stations")
+    st.markdown("Select how you want to capture — from a workstation or from a mobile device.")
+
+    if st.button("🔄 Refresh Page", use_container_width=False):
+        st.rerun()
+
+    st.markdown("---")
+
+    launch_tab1, launch_tab2 = st.tabs(["🖥️ Launch from Workstation", "📱 Launch from Mobile Device"])
+
+    # ── Launch from Workstation ────────────────────────────────
+    with launch_tab1:
+        st.markdown("### Launch a camera station on this workstation")
+        st.caption("The station opens as a desktop window on the computer running Streamlit.")
+
+        ws_col1, ws_col2 = st.columns(2)
+
+        with ws_col1:
+            st.markdown(
+                """<div style="background:#0A8A72;border-radius:12px;
+                padding:20px;text-align:center;margin-bottom:12px;">
+                <div style="font-size:36px;">📷</div>
+                <div style="color:white;font-size:16px;font-weight:700;margin-top:8px;">
+                DJI Camera Station</div>
+                <div style="color:#DCFCE7;font-size:12px;margin-top:4px;">
+                Wired USB capture</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+            if st.button(
+                "🚀 Wired Capture",
+                type="primary",
+                use_container_width=True,
+                key="launch_wired_ws"
+            ):
+                try:
+                    subprocess.Popen(
+                        [sys.executable, "dji_camera_station.py"],
+                        cwd=os.path.dirname(os.path.abspath(__file__))
+                    )
+                    st.info(
+                        "📷 Wired camera station is starting. "
+                        "A setup window will appear on your desktop shortly. "
+                        "If nothing appears, check that the DJI camera is plugged in and switched on."
+                    )
+                except Exception as e:
+                    st.error(f"❌ Could not launch wired camera station: {e}")
+
+        with ws_col2:
+            st.markdown(
+                """<div style="background:#1A6FB5;border-radius:12px;
+                padding:20px;text-align:center;margin-bottom:12px;">
+                <div style="font-size:36px;">📡</div>
+                <div style="color:white;font-size:16px;font-weight:700;margin-top:8px;">
+                DJI Wireless Station</div>
+                <div style="color:#DBEAFE;font-size:12px;margin-top:4px;">
+                RTMP wireless capture</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+            if st.button(
+                "🚀 Wireless Capture",
+                type="primary",
+                use_container_width=True,
+                key="launch_wireless_ws"
+            ):
+                try:
+                    subprocess.Popen(
+                        [sys.executable, "dji_wireless_station.py"],
+                        cwd=os.path.dirname(os.path.abspath(__file__))
+                    )
+                    st.info(
+                        "📡 Wireless camera station is starting. "
+                        "Make sure rtmp_server.js is running and DJI Mimo is streaming "
+                        "before clicking Connect in the setup window."
+                    )
+                except Exception as e:
+                    st.error(f"❌ Could not launch wireless camera station: {e}")
+
+    # ── Launch from Mobile Device ──────────────────────────────
+    with launch_tab2:
+        st.markdown("### Launch a capture station in your mobile browser")
+        st.caption("Open the relevant tab on your phone browser to begin capture.")
+
+        mob_col1, mob_col2 = st.columns(2)
+
+        with mob_col1:
+            st.markdown(
+                """<div style="background:#7C3AED;border-radius:12px;
+                padding:20px;text-align:center;margin-bottom:12px;">
+                <div style="font-size:36px;">📱</div>
+                <div style="color:white;font-size:16px;font-weight:700;margin-top:8px;">
+                Mobile Capture Station</div>
+                <div style="color:#EDE9FE;font-size:12px;margin-top:4px;">
+                Phone camera capture</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                "Open the **📱 Mobile Capture Station** directly in your phone browser "
+                "using the Streamlit Community Cloud link."
+            )
+            if st.button(
+                "📱 Mobile Device Capture",
+                type="primary",
+                use_container_width=True,
+                key="launch_mobile_btn"
+            ):
+                st.session_state["camera_station_sub"] = "mobile"
+                st.session_state["current_page"] = "🚀 Launch Camera Stations"
+                st.rerun()
+
+        with mob_col2:
+            st.markdown(
+                """<div style="background:#B45309;border-radius:12px;
+                padding:20px;text-align:center;margin-bottom:12px;">
+                <div style="font-size:36px;">📡</div>
+                <div style="color:white;font-size:16px;font-weight:700;margin-top:8px;">
+                DJI Wireless (Mobile)</div>
+                <div style="color:#FEF3C7;font-size:12px;margin-top:4px;">
+                RTMP stream via local IP</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                "⚠️ **Use laptop's local IP address** (e.g. `http://10.243.253.63:8501`) — "
+                "do NOT use the Streamlit Community Cloud link. "
+                "The RTMP server must be running on the workstation."
+            )
+            if st.button(
+                "📡 DJI Wireless Mobile Remote Capture",
+                type="primary",
+                use_container_width=True,
+                key="launch_dji_mobile_btn"
+            ):
+                st.session_state["camera_station_sub"] = "dji_wireless_mobile"
+                st.session_state["current_page"] = "🚀 Launch Camera Stations"
+                st.rerun()
 
 elif page == "🔍 Defect Viewer":
     _require_manual()
