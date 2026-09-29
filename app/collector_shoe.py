@@ -1073,83 +1073,288 @@ def show():
     # ── Persistent success message after registration ──────────
     if "reg_success_msg" in st.session_state:
         st.success(st.session_state.pop("reg_success_msg"))
-    st.caption("Physical measurements vs visual YOLO inspection — correlation and degradation tracking.")
-    st.divider()
 
     supabase  = get_supabase()
     corr_df   = load_correlation(supabase)
     degrad_df = load_degradation(supabase)
     shoes_df  = load_shoes(supabase)
 
-    # ── Weather banner + active rotation threshold ─────────────
+    # ── Weather banner — always above all tabs ─────────────────
     active_threshold = _show_weather_banner(supabase)
 
-    # ── Register new shoe — open to all (technician registers on install) ─
-    # Persist expander state so it doesn't collapse on rerun
-    reg_expanded = st.session_state.get("reg_expander_open", False)
-    with st.expander("➕ Register New Collector Shoe", expanded=reg_expanded):
-        st.caption("Register a new collector shoe when it is installed on an LRV.")
-        _show_registration_form(supabase)
+    st.divider()
 
-    # ── No data ────────────────────────────────────────────────
-    # Note: don't return early here — confidence progression chart
-    # should still show even if physical measurement data is empty.
+    # ── 4-tab layout ───────────────────────────────────────────
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Overview",
+        "📈 Trends & Analysis",
+        "📋 Inspection Records",
+        "⚙️ Manage Shoes",
+    ])
 
-    # ── Physical measurement sections (partner's scope) ─────────
-    st.markdown(
-        """<div style="background:#FFF7ED;border:1px solid #F59E0B;border-radius:12px;
-        padding:18px 22px;margin-bottom:20px;">
-        <div style="font-size:15px;font-weight:700;color:#92400E;margin-bottom:6px;">
-        📋 Physical Measurement Data — Awaiting Input
-        </div>
-        <div style="font-size:13px;color:#78350F;line-height:1.6;">
-        The following sections require <b>physical depth gauge measurements</b> taken during 
-        scheduled preventive maintenance (PM) inspections:<br><br>
-        &nbsp;&nbsp;• <b>Current Status</b> — shoe thickness and pass/fail per asset<br>
-        &nbsp;&nbsp;• <b>Programme Summary</b> — fleet-wide pass rate and correlation metrics<br>
-        &nbsp;&nbsp;• <b>Thickness Degradation Over Time</b> — wear trend per shoe<br>
-        &nbsp;&nbsp;• <b>Wear Rate (mm/week)</b> — degradation rate and fleet average<br><br>
-        </div>
-        </div>""",
-        unsafe_allow_html=True
-    )
+    # ══════════════════════════════════════════════════════════
+    # TAB 1 — OVERVIEW
+    # ══════════════════════════════════════════════════════════
+    with tab1:
+        # ── Shoe status cards ──────────────────────────────────
+        st.markdown('<div class="section-header">Current Status</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Latest recorded thickness and pass/fail status per collector shoe.</div>', unsafe_allow_html=True)
 
-    # ── SECTION 5: Confidence progression ─────────────────────
-    st.markdown('<div class="section-header">Visual Wear Progression (YOLO Confidence Trend)</div>',
-                unsafe_allow_html=True)
-    st.markdown('<div class="section-intro">Tracks YOLO detection confidence scores over time per shoe. A rising trend may indicate the defect is becoming more visually prominent. Not a direct measure of physical severity — always verify with a depth gauge.</div>', unsafe_allow_html=True)
-    with st.expander("📈 View Confidence Trend Chart", expanded=False):
+        shoe_ids = corr_df["shoe_id"].unique().tolist() if "shoe_id" in corr_df.columns and not corr_df.empty else []
+        if shoe_ids:
+            card_cols = st.columns(min(len(shoe_ids), 4))
+            for idx, shoe_id in enumerate(shoe_ids):
+                with card_cols[idx % 4]:
+                    _shoe_card(shoe_id, corr_df, shoes_df)
+        else:
+            st.markdown(
+                """<div style="background:#FFF7ED;border:1px solid #F59E0B;border-radius:12px;
+                padding:18px 22px;margin-bottom:16px;">
+                <div style="font-size:15px;font-weight:700;color:#92400E;margin-bottom:6px;">
+                📋 Physical Measurement Data — Awaiting Input
+                </div>
+                <div style="font-size:13px;color:#78350F;line-height:1.6;">
+                Shoe status cards will appear once physical depth gauge measurements are entered.<br>
+                Register shoes in the <b>⚙️ Manage Shoes</b> tab, then submit measurements during PM inspections.
+                </div></div>""",
+                unsafe_allow_html=True
+            )
+
+        # ── Programme summary metrics ──────────────────────────
+        st.markdown('<div class="section-header">Programme Summary</div>', unsafe_allow_html=True)
+
+        if not corr_df.empty:
+            total        = len(corr_df)
+            pass_count   = len(corr_df[corr_df["pass_fail"] == "pass"])   if "pass_fail"           in corr_df.columns else 0
+            fail_count   = len(corr_df[corr_df["pass_fail"] == "fail"])   if "pass_fail"           in corr_df.columns else 0
+            agree_count  = len(corr_df[corr_df["correlation_status"] == "agree"])    if "correlation_status" in corr_df.columns else 0
+            dis_count    = len(corr_df[corr_df["correlation_status"] == "disagree"]) if "correlation_status" in corr_df.columns else 0
+            pass_rate    = round(pass_count  / total * 100, 1) if total > 0 else 0
+            agree_rate   = round(agree_count / total * 100, 1) if total > 0 else 0
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            with m1: _metric("Total",    total,           "inspections")
+            with m2: _metric("Pass",     f"{pass_rate}%", f"{pass_count} sessions",  PASS_COLOR)
+            with m3: _metric("Fail",     f"{100-pass_rate:.1f}%", f"{fail_count} sessions", FAIL_COLOR)
+            with m4: _metric("Agree",    f"{agree_rate}%", f"{agree_count} sessions", PASS_COLOR)
+            with m5: _metric("Disagree", dis_count,        "needs review",            FAIL_COLOR if dis_count > 0 else SLATE)
+        else:
+            st.info("📭 No correlation records yet. Summary metrics will appear once physical measurements are submitted.")
+
+    # ══════════════════════════════════════════════════════════
+    # TAB 2 — TRENDS & ANALYSIS
+    # ══════════════════════════════════════════════════════════
+    with tab2:
+
+        # ── Thickness Degradation ──────────────────────────────
+        st.markdown('<div class="section-header">Thickness Degradation Over Time</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Tracks physical shoe thickness from each PM inspection. Dashed lines mark severity thresholds — rotation required at ≥4mm wear (dry) / ≥3mm (rainy).</div>', unsafe_allow_html=True)
+
+        if not degrad_df.empty and "thickness_mm" in degrad_df.columns:
+            shoe_list  = degrad_df["shoe_id"].unique().tolist() if "shoe_id" in degrad_df.columns else []
+            trend_shoe = st.selectbox("Select shoe", ["All"] + shoe_list, key="trend_shoe") if len(shoe_list) > 1 else "All"
+            trend_data = degrad_df if trend_shoe == "All" else degrad_df[degrad_df["shoe_id"] == trend_shoe]
+
+            if not trend_data.empty:
+                trend_data = trend_data.copy()
+                trend_data["inspected_at"] = pd.to_datetime(trend_data["inspected_at"])
+                fig = px.line(
+                    trend_data, x="inspected_at", y="thickness_mm",
+                    color="shoe_id" if len(shoe_list) > 1 else None,
+                    markers=True,
+                    color_discrete_sequence=[PASS_COLOR, FAIL_COLOR],
+                )
+                try:
+                    thresh = get_supabase().table("wear_thresholds").select("*").execute()
+                    if thresh.data:
+                        for t in thresh.data:
+                            if t.get("max_thickness_mm"):
+                                fig.add_hline(
+                                    y=t["max_thickness_mm"], line_dash="dash",
+                                    line_color=SEVERITY_COLOR.get(t["severity"], "#888"),
+                                    annotation_text=f"{t['severity']} threshold",
+                                    annotation_position="right",
+                                )
+                except:
+                    pass
+                fig.update_layout(
+                    height=300, margin=dict(l=0, r=80, t=10, b=0),
+                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    xaxis=dict(showgrid=False, title=""),
+                    yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title="Thickness (mm)"),
+                    legend=dict(orientation="h", y=-0.2),
+                )
+                st.plotly_chart(fig)
+                st.caption("Dashed lines show severity thresholds — when the trend line crosses a threshold, that shoe has entered a new wear level.")
+
+                with st.expander("📊 Chart Interpretation", expanded=False):
+                    for shoe in trend_data["shoe_id"].unique() if "shoe_id" in trend_data.columns else []:
+                        shoe_data = trend_data[trend_data["shoe_id"] == shoe].sort_values("inspected_at")
+                        if len(shoe_data) < 2:
+                            continue
+                        first_thick = shoe_data.iloc[0]["thickness_mm"]
+                        last_thick  = shoe_data.iloc[-1]["thickness_mm"]
+                        total_wear  = round(first_thick - last_thick, 2)
+                        weeks       = max((shoe_data.iloc[-1]["inspected_at"] - shoe_data.iloc[0]["inspected_at"]).days / 7, 0.1)
+                        rate        = round(total_wear / weeks, 2)
+                        wear_depth  = round(16.0 - last_thick, 2)
+                        if wear_depth < 2:      sev, sev_color = "none — within normal range", PASS_COLOR
+                        elif wear_depth < 4:    sev, sev_color = "minor — monitor closely", WARN_COLOR
+                        elif wear_depth < 5:    sev, sev_color = "moderate — rotation required", "#E85D04"
+                        else:                   sev, sev_color = "severe — replace immediately", FAIL_COLOR
+                        remaining_to_rotate = max((16.0 - 4.0) - (16.0 - last_thick), 0)
+                        weeks_to_rotate = round(remaining_to_rotate / rate, 1) if rate > 0 else None
+                        st.markdown(
+                            f"**{shoe}** — Current thickness: **{last_thick}mm** "
+                            f"(wear depth: {wear_depth}mm). "
+                            f"Severity: :{sev_color}[**{sev}**].  \n"
+                            f"Total wear over {round(weeks,1)} weeks: **{total_wear}mm** "
+                            f"at an average rate of **{rate}mm/week**."
+                        )
+                        if weeks_to_rotate and wear_depth < 4:
+                            st.info(f"📅 At current rate, **{shoe}** will reach the 4mm rotation threshold in approximately **{weeks_to_rotate} weeks**.")
+                        elif wear_depth >= 4 and wear_depth < 5:
+                            st.warning(f"⚠️ **{shoe}** has reached the rotation threshold — action required.")
+                        elif wear_depth >= 5:
+                            st.error(f"🔴 **{shoe}** has exceeded the 5mm replacement limit — replace immediately.")
+        else:
+            st.info("📭 No physical measurement data yet. Data will appear once PM inspections are submitted.")
+
+        st.divider()
+
+        # ── Wear Rate ──────────────────────────────────────────
+        st.markdown('<div class="section-header">Wear Rate (mm/week)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Session-by-session wear rate (bars) vs cumulative average (dotted line). Bars significantly above the fleet average may indicate abnormal wear or a chip-off event.</div>', unsafe_allow_html=True)
+
+        if not degrad_df.empty and "thickness_mm" in degrad_df.columns:
+            try:
+                import numpy as np
+                import plotly.graph_objects as go
+
+                wear_rate_data = []
+                wr_shoe_ids = degrad_df["shoe_id"].unique().tolist() if "shoe_id" in degrad_df.columns else []
+
+                for shoe in wr_shoe_ids:
+                    shoe_data = degrad_df[degrad_df["shoe_id"] == shoe].copy()
+                    shoe_data["inspected_at"] = pd.to_datetime(shoe_data["inspected_at"])
+                    shoe_data = shoe_data.sort_values("inspected_at")
+                    if len(shoe_data) < 2:
+                        continue
+                    for i in range(1, len(shoe_data)):
+                        prev  = shoe_data.iloc[i-1]
+                        curr  = shoe_data.iloc[i]
+                        weeks = max((curr["inspected_at"] - prev["inspected_at"]).days / 7, 0.1)
+                        rate  = round((prev["thickness_mm"] - curr["thickness_mm"]) / weeks, 3)
+                        wear_rate_data.append({"shoe_id": shoe, "date": curr["inspected_at"], "rate_mm_week": max(rate, 0), "type": "Session rate"})
+                    first_thick = shoe_data.iloc[0]["thickness_mm"]
+                    first_date  = shoe_data.iloc[0]["inspected_at"]
+                    for i in range(1, len(shoe_data)):
+                        curr  = shoe_data.iloc[i]
+                        weeks = max((curr["inspected_at"] - first_date).days / 7, 0.1)
+                        rate  = round((first_thick - curr["thickness_mm"]) / weeks, 3)
+                        wear_rate_data.append({"shoe_id": shoe, "date": curr["inspected_at"], "rate_mm_week": max(rate, 0), "type": "Cumulative avg"})
+
+                if wear_rate_data:
+                    wr_df     = pd.DataFrame(wear_rate_data)
+                    wr_shoe   = st.selectbox("Select shoe", ["All"] + wr_shoe_ids, key="wr_shoe")
+                    if wr_shoe != "All":
+                        wr_df = wr_df[wr_df["shoe_id"] == wr_shoe]
+                    avg_rate   = round(wr_df[wr_df["type"] == "Session rate"]["rate_mm_week"].mean(), 3)
+                    session_df = wr_df[wr_df["type"] == "Session rate"]
+                    cumavg_df  = wr_df[wr_df["type"] == "Cumulative avg"]
+                    fig = go.Figure()
+                    colors = ["#0A8A72", "#C9382A", "#E8920A", "#6B21A8"]
+                    for idx, shoe in enumerate(wr_df["shoe_id"].unique()):
+                        s_data = session_df[session_df["shoe_id"] == shoe]
+                        fig.add_trace(go.Bar(x=s_data["date"], y=s_data["rate_mm_week"], name=f"{shoe} (session)", marker_color=colors[idx % len(colors)], opacity=0.7))
+                    for idx, shoe in enumerate(wr_df["shoe_id"].unique()):
+                        c_data = cumavg_df[cumavg_df["shoe_id"] == shoe]
+                        fig.add_trace(go.Scatter(x=c_data["date"], y=c_data["rate_mm_week"], name=f"{shoe} (cumulative avg)", mode="lines+markers", line=dict(color=colors[idx % len(colors)], dash="dot", width=2), marker=dict(size=6)))
+                    fig.add_hline(y=avg_rate, line_dash="dash", line_color="#E8920A", annotation_text=f"Fleet avg: {avg_rate}mm/week", annotation_position="right")
+                    fig.update_layout(
+                        height=320, margin=dict(l=0, r=120, t=10, b=0),
+                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                        xaxis=dict(showgrid=False, title=""),
+                        yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title="Wear rate (mm/week)"),
+                        legend=dict(orientation="h", y=-0.25), barmode="group",
+                    )
+                    st.plotly_chart(fig)
+                    st.caption("**Bars** — wear rate between each consecutive inspection.  **Dotted lines** — cumulative average.  **Amber dashed line** — fleet average.")
+
+                    with st.expander("📊 Chart Interpretation", expanded=False):
+                        st.markdown(f"**Fleet average wear rate:** {avg_rate}mm/week")
+                        st.markdown("---")
+                        for shoe in session_df["shoe_id"].unique():
+                            shoe_sessions = session_df[session_df["shoe_id"] == shoe]
+                            shoe_avg      = round(shoe_sessions["rate_mm_week"].mean(), 3)
+                            shoe_max      = round(shoe_sessions["rate_mm_week"].max(), 3)
+                            shoe_max_date = shoe_sessions.loc[shoe_sessions["rate_mm_week"].idxmax(), "date"].strftime("%d %b %Y")
+                            vs_fleet      = round(shoe_avg / avg_rate, 1) if avg_rate > 0 else 1
+                            if shoe_avg > avg_rate * 1.5:
+                                status = f"⚠️ **Above average** — wearing {vs_fleet}× faster than fleet average"
+                            elif shoe_avg < avg_rate * 0.5:
+                                status = f"✅ **Below average** — wearing slower than fleet average"
+                            else:
+                                status = f"✅ **Within normal range** — close to fleet average"
+                            st.markdown(f"**{shoe}** — Average wear rate: **{shoe_avg}mm/week** ({status}).  \nHighest session rate: **{shoe_max}mm/week** on {shoe_max_date}.")
+                            if shoe_max > avg_rate * 2:
+                                st.warning(f"The spike on {shoe_max_date} ({shoe_max}mm/week) is more than 2× the fleet average. This may indicate a chip-off event or abnormal contact condition. Inspect the shoe surface.")
+                    spikes = wr_df[(wr_df["type"] == "Session rate") & (wr_df["rate_mm_week"] > avg_rate * 2)]
+                    if not spikes.empty:
+                        for _, spike in spikes.iterrows():
+                            st.warning(f"⚠️ **{spike['shoe_id']}** showed abnormal wear rate of **{spike['rate_mm_week']:.2f}mm/week** on {spike['date'].strftime('%d %b %Y')} — more than 2× the fleet average ({avg_rate:.2f}mm/week). Inspect for chip-off or abnormal wear pattern.")
+                else:
+                    st.info("Not enough inspection sessions to calculate wear rate. Minimum 2 sessions per shoe required.")
+            except Exception as e:
+                st.error(f"Could not calculate wear rate: {e}")
+        else:
+            st.info("📭 No physical inspection data yet.")
+
+        st.divider()
+
+        # ── YOLO Confidence Trend ──────────────────────────────
+        st.markdown('<div class="section-header">Visual Wear Progression (YOLO Confidence Trend)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Tracks YOLO detection confidence scores over time per shoe. A rising trend may indicate the defect is becoming more visually prominent. Not a direct measure of physical severity — always verify with a depth gauge.</div>', unsafe_allow_html=True)
         _show_confidence_progression(supabase)
 
-    # ── SECTION 5b: Detection Frequency Chart ──────────────────
-    _show_detection_frequency(supabase)
+        st.divider()
 
-    # ── SECTION 5c: Session Frequency Chart ────────────────────
-    _show_session_frequency(supabase)
+        # ── Detection Frequency ────────────────────────────────
+        _show_detection_frequency(supabase)
 
-    # ── SECTION 5d: Per-LRV Defect Heatmap ─────────────────────
-    _show_defect_heatmap(supabase)
+        st.divider()
 
-    # ── SECTION 6: Correlation records (collapsible) ───────────
-    st.markdown('<div class="section-header">Correlation Records</div>', unsafe_allow_html=True)
+        # ── Session Frequency ──────────────────────────────────
+        _show_session_frequency(supabase)
 
-    if not corr_df.empty:
-        # Filters always visible
-        f1, f2, f3, f4 = st.columns(4)
-        shoe_filter = f1.selectbox("Shoe",     ["All"] + list(corr_df["shoe_id"].unique()) if "shoe_id" in corr_df.columns else ["All"])
-        corr_filter = f2.selectbox("Correlation", ["All", "agree", "disagree"])
-        pf_filter   = f3.selectbox("Pass / Fail",  ["All", "pass", "fail"])
-        sev_filter  = f4.selectbox("Severity",     ["All", "none", "minor", "moderate", "severe"])
+        st.divider()
 
-        filtered = corr_df.copy()
-        if shoe_filter != "All" and "shoe_id"            in filtered.columns: filtered = filtered[filtered["shoe_id"] == shoe_filter]
-        if corr_filter != "All" and "correlation_status" in filtered.columns: filtered = filtered[filtered["correlation_status"] == corr_filter]
-        if pf_filter   != "All" and "pass_fail"          in filtered.columns: filtered = filtered[filtered["pass_fail"] == pf_filter]
-        if sev_filter  != "All" and "physical_severity"  in filtered.columns: filtered = filtered[filtered["physical_severity"] == sev_filter]
+        # ── Per-LRV Defect Heatmap ─────────────────────────────
+        _show_defect_heatmap(supabase)
 
-        st.caption(f"Showing {len(filtered)} of {len(corr_df)} records")
+    # ══════════════════════════════════════════════════════════
+    # TAB 3 — INSPECTION RECORDS
+    # ══════════════════════════════════════════════════════════
+    with tab3:
+        # ── Correlation records ────────────────────────────────
+        st.markdown('<div class="section-header">Correlation Records</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Physical vs visual (YOLO) comparison records from each PM inspection. Use filters to isolate disagreements or failures for review.</div>', unsafe_allow_html=True)
 
-        with st.expander(f"📋 Show records ({len(filtered)})", expanded=False):
+        if not corr_df.empty:
+            f1, f2, f3, f4 = st.columns(4)
+            shoe_filter = f1.selectbox("Shoe",          ["All"] + list(corr_df["shoe_id"].unique()) if "shoe_id" in corr_df.columns else ["All"])
+            corr_filter = f2.selectbox("Correlation",   ["All", "agree", "disagree"])
+            pf_filter   = f3.selectbox("Pass / Fail",   ["All", "pass", "fail"])
+            sev_filter  = f4.selectbox("Severity",      ["All", "none", "minor", "moderate", "severe"])
+
+            filtered = corr_df.copy()
+            if shoe_filter != "All" and "shoe_id"            in filtered.columns: filtered = filtered[filtered["shoe_id"] == shoe_filter]
+            if corr_filter != "All" and "correlation_status" in filtered.columns: filtered = filtered[filtered["correlation_status"] == corr_filter]
+            if pf_filter   != "All" and "pass_fail"          in filtered.columns: filtered = filtered[filtered["pass_fail"] == pf_filter]
+            if sev_filter  != "All" and "physical_severity"  in filtered.columns: filtered = filtered[filtered["physical_severity"] == sev_filter]
+
+            st.caption(f"Showing {len(filtered)} of {len(corr_df)} records")
+
             display_cols = [c for c in [
                 "inspection_date","shoe_id","shoe_condition","thickness_mm",
                 "physical_severity","pass_fail","visual_severity","visual_pass_fail",
@@ -1170,7 +1375,7 @@ def show():
                 if "❌" in str(row.get("pass_fail", "")): return ["background-color:#FFF5F0"] * len(row)
                 return ["background-color:#F0FDF4"] * len(row)
 
-            st.dataframe(display_df.style.apply(highlight, axis=1), height=300, hide_index=True)
+            st.dataframe(display_df.style.apply(highlight, axis=1), height=400, hide_index=True)
 
             csv_data = filtered.to_csv(index=False).encode("utf-8")
             st.download_button(
@@ -1178,13 +1383,16 @@ def show():
                 file_name=f"collector_shoe_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
             )
+        else:
+            st.info("📭 No correlation records yet. Records will appear once physical measurements are submitted.")
 
-    # ── SECTION 7: Registered shoes (collapsible) ──────────────
-    st.markdown('<div class="section-header">Registered Shoes</div>', unsafe_allow_html=True)
+        st.divider()
 
-    if not shoes_df.empty:
-        with st.expander("🗃 View registered shoes", expanded=True):
+        # ── Registered shoes ───────────────────────────────────
+        st.markdown('<div class="section-header">Registered Shoes</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">All collector shoes currently registered in the system. Edit or delete records here.</div>', unsafe_allow_html=True)
 
+        if not shoes_df.empty:
             ROTATION_OPTIONS = {
                 "in_service":    "In Service — wear < 3mm (rainy) / < 4mm (dry), actively monitored",
                 "not_rotated":   "Not Rotated — wear ≥ 3mm (rainy) / ≥ 4mm (dry), rotation pending",
@@ -1199,9 +1407,9 @@ def show():
             }
 
             for _, shoe in shoes_df.iterrows():
-                shoe_id   = shoe["shoe_id"]
-                condition = shoe.get("condition", "unknown")
-                baseline  = shoe.get("baseline_thickness_mm", 16.0)
+                shoe_id    = shoe["shoe_id"]
+                condition  = shoe.get("condition", "unknown")
+                baseline   = shoe.get("baseline_thickness_mm", 16.0)
                 rot_status = shoe.get("rotation_status", "in_service")
                 notes_val  = shoe.get("notes", "") or ""
                 reg_at     = shoe.get("registered_at", "")
@@ -1216,42 +1424,30 @@ def show():
                         st.markdown(f"**{shoe_id}** &nbsp;·&nbsp; {condition} &nbsp;·&nbsp; {baseline}mm baseline &nbsp;·&nbsp; Installed: {reg_at}")
                         st.caption(f"Rotation: {ROTATION_OPTIONS.get(rot_status, rot_status)}")
                     with col2:
-                        edit_key = f"edit_shoe_{shoe_id}"
                         if st.button("✏️ Edit", key=f"edit_btn_{shoe_id}", use_container_width=True):
-                            st.session_state[edit_key] = not st.session_state.get(edit_key, False)
+                            st.session_state[f"edit_shoe_{shoe_id}"] = not st.session_state.get(f"edit_shoe_{shoe_id}", False)
                             st.rerun()
                     with col3:
-                        del_key = f"del_shoe_{shoe_id}"
                         if st.button("🗑️ Delete", key=f"del_btn_{shoe_id}", use_container_width=True):
-                            st.session_state[del_key] = True
+                            st.session_state[f"del_shoe_{shoe_id}"] = True
                             st.rerun()
 
-                    # ── Edit form ──────────────────────────────
                     if st.session_state.get(f"edit_shoe_{shoe_id}", False):
                         with st.form(f"edit_form_{shoe_id}"):
                             st.markdown(f"**Editing: {shoe_id}**")
                             e1, e2 = st.columns(2)
-
                             cond_keys = list(CONDITION_OPTIONS.keys())
                             cond_vals = list(CONDITION_OPTIONS.values())
                             cond_idx  = cond_keys.index(condition) if condition in cond_keys else 0
                             new_condition = e1.selectbox("Condition", cond_vals, index=cond_idx)
                             new_condition = cond_keys[cond_vals.index(new_condition)]
-
-                            new_baseline = e2.number_input(
-                                "Baseline Thickness (mm)",
-                                min_value=0.0, max_value=100.0,
-                                value=float(baseline), step=0.1
-                            )
-
-                            rot_keys = list(ROTATION_OPTIONS.keys())
-                            rot_vals = list(ROTATION_OPTIONS.values())
-                            rot_idx  = rot_keys.index(rot_status) if rot_status in rot_keys else 0
-                            new_rot  = st.selectbox("Rotation Status", rot_vals, index=rot_idx)
-                            new_rot  = rot_keys[rot_vals.index(new_rot)]
-
+                            new_baseline  = e2.number_input("Baseline Thickness (mm)", min_value=0.0, max_value=100.0, value=float(baseline), step=0.1)
+                            rot_keys  = list(ROTATION_OPTIONS.keys())
+                            rot_vals  = list(ROTATION_OPTIONS.values())
+                            rot_idx   = rot_keys.index(rot_status) if rot_status in rot_keys else 0
+                            new_rot   = st.selectbox("Rotation Status", rot_vals, index=rot_idx)
+                            new_rot   = rot_keys[rot_vals.index(new_rot)]
                             new_notes = st.text_area("Notes", value=notes_val, height=60)
-
                             s1, s2 = st.columns(2)
                             if s1.form_submit_button("💾 Save Changes", type="primary"):
                                 try:
@@ -1271,7 +1467,6 @@ def show():
                                 st.session_state.pop(f"edit_shoe_{shoe_id}", None)
                                 st.rerun()
 
-                    # ── Delete confirmation ────────────────────
                     if st.session_state.get(f"del_shoe_{shoe_id}", False):
                         st.warning(f"⚠️ Delete **{shoe_id}**? This cannot be undone.")
                         d1, d2 = st.columns(2)
@@ -1289,3 +1484,59 @@ def show():
                             if st.button("❌ Cancel", key=f"del_cancel_{shoe_id}"):
                                 st.session_state.pop(f"del_shoe_{shoe_id}", None)
                                 st.rerun()
+        else:
+            st.info("📭 No shoes registered yet. Register a shoe in the ⚙️ Manage Shoes tab.")
+
+    # ══════════════════════════════════════════════════════════
+    # TAB 4 — MANAGE SHOES
+    # ══════════════════════════════════════════════════════════
+    with tab4:
+        # ── Register new shoe ──────────────────────────────────
+        st.markdown('<div class="section-header">Register New Collector Shoe</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Register a new collector shoe when it is installed on an LRV. All fields are required. Shoe ID is auto-generated from the LRV number and position.</div>', unsafe_allow_html=True)
+
+        reg_expanded = st.session_state.get("reg_expander_open", False)
+        with st.expander("➕ Open Registration Form", expanded=reg_expanded):
+            _show_registration_form(supabase)
+
+        st.divider()
+
+        # ── Update Rotation Status ─────────────────────────────
+        st.markdown('<div class="section-header">Update Rotation Status</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">Update a shoe\'s rotation status when a maintenance action has been performed.</div>', unsafe_allow_html=True)
+
+        all_shoes = shoes_df["shoe_id"].tolist() if not shoes_df.empty else []
+        if not all_shoes:
+            st.info("📭 No shoes registered yet. Register a shoe above first.")
+        else:
+            ROTATION_STATUS_OPTIONS = {
+                "in_service":    "In Service — wear < 3mm (rainy) / < 4mm (dry), actively monitored",
+                "not_rotated":   "Not Rotated — wear ≥ 3mm (rainy) / ≥ 4mm (dry), rotation pending",
+                "rotated_once":  "Rotated Once — rotation performed, second side in use",
+                "rotated_twice": "Rotated Twice — both sides worn, pending replacement",
+                "retired":       "Retired — removed from service",
+            }
+            u1, u2 = st.columns(2)
+            update_shoe = u1.selectbox("Select Shoe", all_shoes, key="update_shoe_select")
+            current     = shoes_df[shoes_df["shoe_id"] == update_shoe]
+            current_status = current["rotation_status"].values[0] if not current.empty and "rotation_status" in current.columns else "in_service"
+            rs_display = list(ROTATION_STATUS_OPTIONS.values())
+            rs_keys    = list(ROTATION_STATUS_OPTIONS.keys())
+            current_idx = rs_keys.index(current_status) if current_status in rs_keys else 0
+            new_status_display = u2.selectbox("New Status", rs_display, index=current_idx, key="update_status_select")
+            new_status = rs_keys[rs_display.index(new_status_display)]
+            st.info(f"Current: **{ROTATION_STATUS_OPTIONS.get(current_status, current_status)}**")
+            if st.button("Update Status", type="primary", key="update_rotation_btn"):
+                if new_status == current_status:
+                    st.warning("Status is already set to this value.")
+                else:
+                    try:
+                        supabase.table("collector_shoes") \
+                            .update({"rotation_status": new_status}) \
+                            .eq("shoe_id", update_shoe) \
+                            .execute()
+                        st.success(f"✅ **{update_shoe}** updated to: {ROTATION_STATUS_OPTIONS[new_status]}")
+                        load_shoes.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Update failed: {e}")
