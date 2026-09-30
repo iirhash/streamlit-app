@@ -650,13 +650,25 @@ def _build_asset_id_frame(parent, bg, header_color, current_asset=""):
 def _get_session_info_gui(supabase):
     """
     Shows a tkinter popup to collect technician name and asset ID.
-    Asset ID is built via dropdowns (Part Type → LRV → Cab End → Position → Side).
+    Asset ID is built via dropdowns. After asset ID is selected, checks
+    Supabase for registration status and shows inline 5-case handling.
     Returns (technician_name, asset_id) or (None, None) if cancelled.
     """
     import tkinter as tk
     from tkinter import ttk, messagebox
+    from datetime import date
 
     result = {"technician_name": None, "asset_id": None}
+
+    # State for inline registration
+    reg_state = {
+        "status": None,          # None = not checked yet
+        "condition_var": None,
+        "rotation_var": None,
+        "show_rotation": False,
+        "start_btn": None,
+        "start_disabled": False,
+    }
 
     root = tk.Tk()
     root.title("DJI Camera Station — Session Setup")
@@ -664,7 +676,7 @@ def _get_session_info_gui(supabase):
     root.configure(bg="#F8FAFC")
 
     root.update_idletasks()
-    w, h = 440, 640
+    w, h = 440, 720
     x = (root.winfo_screenwidth() // 2) - (w // 2)
     y = (root.winfo_screenheight() // 2) - (h // 2)
     root.geometry(f"{w}x{h}+{x}+{y}")
@@ -678,9 +690,28 @@ def _get_session_info_gui(supabase):
         font=("Calibri", 16, "bold")
     ).pack(pady=15)
 
-    # ── Form ──────────────────────────────────────────────────
-    form = tk.Frame(root, bg="#F8FAFC", padx=24, pady=12)
-    form.pack(fill="both", expand=True)
+    # ── Buttons — must be packed BEFORE the canvas so side="bottom" works ──
+    btn_frame = tk.Frame(root, bg="#F8FAFC", padx=24, pady=12)
+    tk.Frame(root, bg="#E2E8F0", height=1).pack(side="bottom", fill="x")
+    btn_frame.pack(side="bottom", fill="x")
+
+    # ── Scrollable form area ──────────────────────────────────
+    canvas = tk.Canvas(root, bg="#F8FAFC", highlightthickness=0)
+    scrollbar = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+
+    form = tk.Frame(canvas, bg="#F8FAFC", padx=24, pady=12)
+    form_window = canvas.create_window((0, 0), window=form, anchor="nw")
+
+    def on_frame_configure(event):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+    form.bind("<Configure>", on_frame_configure)
+
+    def on_canvas_configure(event):
+        canvas.itemconfig(form_window, width=event.width)
+    canvas.bind("<Configure>", on_canvas_configure)
 
     # Technician name
     tk.Label(form, text="Technician Name", bg="#F8FAFC",
@@ -696,11 +727,32 @@ def _get_session_info_gui(supabase):
     builder_frame, get_asset_id = _build_asset_id_frame(form, "#F8FAFC", "#0A8A72")
     builder_frame.pack(fill="x")
 
-    # ── Buttons — packed at bottom, always visible ────────────
-    btn_frame = tk.Frame(root, bg="#F8FAFC", padx=24, pady=12)
-    btn_frame.pack(side="bottom", fill="x")
+    # ── Registration status panel (built dynamically) ─────────
+    status_frame = tk.Frame(form, bg="#F8FAFC")
+    status_frame.pack(fill="x", pady=(8, 0))
 
-    tk.Frame(root, bg="#E2E8F0", height=1).pack(side="bottom", fill="x")
+    def _clear_status_frame():
+        for widget in status_frame.winfo_children():
+            widget.destroy()
+        reg_state["condition_var"] = None
+        reg_state["rotation_var"]  = None
+        reg_state["show_rotation"] = False
+        reg_state["start_disabled"] = False
+        if reg_state["start_btn"]:
+            reg_state["start_btn"].config(state="normal", bg="#0A8A72")
+
+    def _check_shoe_registration(asset_id):
+        """Query Supabase for shoe registration status."""
+        try:
+            r = supabase.table("collector_shoes") \
+                .select("shoe_id, rotation_status, condition") \
+                .eq("shoe_id", asset_id) \
+                .execute()
+            if r.data:
+                return r.data[0]
+            return None
+        except:
+            return None
 
     def on_start():
         name  = name_var.get().strip()
@@ -711,6 +763,58 @@ def _get_session_info_gui(supabase):
         if not asset:
             messagebox.showwarning("Missing", "Please select a valid Asset ID.")
             return
+        if reg_state["start_disabled"]:
+            messagebox.showwarning("Retired", "This shoe has been retired and cannot be inspected.")
+            return
+
+        # ── Validate and handle registration/rotation ─────────
+        cond_var = reg_state["condition_var"]
+        rot_var  = reg_state["rotation_var"]
+
+        # Check if we're in case A (new registration needed)
+        shoe = _check_shoe_registration(asset)
+
+        if shoe is None:
+            # CASE A — must register
+            if cond_var is None or not cond_var.get():
+                messagebox.showwarning("Missing", "Please select whether the shoe is New or In-use.")
+                return
+            condition = cond_var.get()  # new / in_use / old
+            if cond_var.get() == "in_use":
+                if rot_var is None or not rot_var.get():
+                    messagebox.showwarning("Missing", "Please answer whether the shoe has been rotated before.")
+                    return
+                rotation_status = "rotated_once" if rot_var.get() == "yes" else "in_service"
+            else:
+                rotation_status = "in_service"
+
+            try:
+                supabase.table("collector_shoes").insert({
+                    "shoe_id":               asset,
+                    "condition":             condition,
+                    "lrv_asset_id":          asset.split("-")[1] if "-" in asset else asset,
+                    "baseline_thickness_mm": 16.0,
+                    "registered_at":         date.today().isoformat(),
+                    "rotation_status":       rotation_status,
+                    "notes":                 f"Registered at first inspection by {name}",
+                }).execute()
+            except Exception as e:
+                if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
+                    messagebox.showerror("Error", f"Registration failed: {e}")
+                    return
+
+        elif shoe.get("rotation_status") == "not_rotated":
+            # CASE C — update rotation if confirmed
+            if rot_var and rot_var.get() == "yes":
+                try:
+                    supabase.table("collector_shoes") \
+                        .update({"rotation_status": "rotated_once"}) \
+                        .eq("shoe_id", asset) \
+                        .execute()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Could not update rotation status: {e}")
+                    return
+
         result["technician_name"] = name
         result["asset_id"]        = asset
         root.destroy()
@@ -718,11 +822,13 @@ def _get_session_info_gui(supabase):
     def on_cancel():
         root.destroy()
 
-    tk.Button(
+    start_btn = tk.Button(
         btn_frame, text="Start Session", command=on_start,
         bg="#0A8A72", fg="white", font=("Calibri", 11, "bold"),
         relief="flat", padx=20, pady=8, cursor="hand2"
-    ).pack(side="left")
+    )
+    start_btn.pack(side="left")
+    reg_state["start_btn"] = start_btn
 
     tk.Button(
         btn_frame, text="Cancel", command=on_cancel,
@@ -730,6 +836,193 @@ def _get_session_info_gui(supabase):
         relief="flat", padx=20, pady=8, cursor="hand2"
     ).pack(side="right")
 
+    # ── Bind asset ID change to trigger status check ──────────
+    # Poll for dropdown changes; run the Supabase lookup in a background
+    # thread so the tkinter main thread stays responsive.
+    import threading as _threading
+
+    last_asset   = {"val": ""}
+    pending_check = {"timer": None}
+
+    def _do_lookup(asset_id):
+        """Runs in a background thread — fetches Supabase, then schedules UI update."""
+        shoe = _check_shoe_registration(asset_id)
+        # Marshal back to tkinter main thread
+        if root.winfo_exists():
+            root.after(0, lambda: _apply_status_panel(asset_id, shoe))
+
+    def _apply_status_panel(asset_id, shoe):
+        """Called on the main thread with the already-fetched shoe record."""
+        # Re-check that the asset hasn't changed while we were fetching
+        if get_asset_id() != asset_id:
+            return
+        _clear_status_frame()
+        if not asset_id:
+            return
+
+        sep = tk.Frame(status_frame, bg="#E2E8F0", height=1)
+        sep.pack(fill="x", pady=(4, 8))
+
+        if shoe is None:
+            tk.Label(status_frame, text="🆕  Shoe Not Registered",
+                     bg="#FFF7ED", fg="#92400E",
+                     font=("Calibri", 10, "bold"),
+                     anchor="w", padx=8, pady=4, relief="groove").pack(fill="x")
+            tk.Label(status_frame, text="Answer the questions below to register this shoe before starting.",
+                     bg="#F8FAFC", fg="#64748B",
+                     font=("Calibri", 9), anchor="w", wraplength=380).pack(fill="x", pady=(4, 6))
+            tk.Label(status_frame, text="Is the shoe at this position a new shoe or already in-use?",
+                     bg="#F8FAFC", fg="#1E293B",
+                     font=("Calibri", 10, "bold"), anchor="w", wraplength=380).pack(fill="x")
+            cond_var = tk.StringVar(value="")
+            reg_state["condition_var"] = cond_var
+            btn_row = tk.Frame(status_frame, bg="#F8FAFC")
+            btn_row.pack(fill="x", pady=(4, 0))
+            rotation_section = tk.Frame(status_frame, bg="#F8FAFC")
+
+            def _on_new():
+                cond_var.set("new")
+                btn_new.config(relief="sunken", bg="#DCFCE7")
+                btn_inuse.config(relief="raised", bg="#E0F2FE")
+                rotation_section.pack_forget()
+                reg_state["show_rotation"] = False
+                reg_state["rotation_var"] = None
+
+            def _on_inuse():
+                cond_var.set("in_use")
+                btn_inuse.config(relief="sunken", bg="#DCFCE7")
+                btn_new.config(relief="raised", bg="#F1F5F9")
+                for w in rotation_section.winfo_children():
+                    w.destroy()
+                tk.Label(rotation_section, text="Has the shoe at this position been rotated before?",
+                         bg="#F8FAFC", fg="#1E293B",
+                         font=("Calibri", 10, "bold"), anchor="w", wraplength=380).pack(fill="x", pady=(8, 2))
+                rot_var = tk.StringVar(value="")
+                reg_state["rotation_var"] = rot_var
+                reg_state["show_rotation"] = True
+                rot_row = tk.Frame(rotation_section, bg="#F8FAFC")
+                rot_row.pack(fill="x")
+
+                def _rot_no():
+                    rot_var.set("no")
+                    btn_rot_no.config(relief="sunken", bg="#DCFCE7")
+                    btn_rot_yes.config(relief="raised", bg="#F1F5F9")
+
+                def _rot_yes():
+                    rot_var.set("yes")
+                    btn_rot_yes.config(relief="sunken", bg="#DCFCE7")
+                    btn_rot_no.config(relief="raised", bg="#F1F5F9")
+
+                btn_rot_no  = tk.Button(rot_row, text="No",  command=_rot_no,
+                                        bg="#F1F5F9", fg="#1E293B", font=("Calibri", 10),
+                                        relief="raised", padx=16, pady=4, cursor="hand2")
+                btn_rot_yes = tk.Button(rot_row, text="Yes", command=_rot_yes,
+                                        bg="#F1F5F9", fg="#1E293B", font=("Calibri", 10),
+                                        relief="raised", padx=16, pady=4, cursor="hand2")
+                btn_rot_no.pack(side="left", padx=(0, 8))
+                btn_rot_yes.pack(side="left")
+                rotation_section.pack(fill="x")
+
+            btn_new   = tk.Button(btn_row, text="🟢  New",    command=_on_new,
+                                  bg="#F1F5F9", fg="#1E293B", font=("Calibri", 10),
+                                  relief="raised", padx=16, pady=5, cursor="hand2")
+            btn_inuse = tk.Button(btn_row, text="🔵  In-use", command=_on_inuse,
+                                  bg="#E0F2FE", fg="#1E293B", font=("Calibri", 10),
+                                  relief="raised", padx=16, pady=5, cursor="hand2")
+            btn_new.pack(side="left", padx=(0, 8))
+            btn_inuse.pack(side="left")
+
+        else:
+            rot_status = shoe.get("rotation_status", "in_service")
+            if rot_status == "in_service":
+                tk.Label(status_frame, text="✅  Status: In Service",
+                         bg="#F0FDF4", fg="#166534", font=("Calibri", 10, "bold"),
+                         anchor="w", padx=8, pady=4, relief="groove").pack(fill="x")
+                tk.Label(status_frame, text="This shoe is registered and actively monitored. Proceed with inspection.",
+                         bg="#F8FAFC", fg="#64748B", font=("Calibri", 9),
+                         anchor="w", wraplength=380).pack(fill="x", pady=(4, 0))
+
+            elif rot_status == "not_rotated":
+                tk.Label(status_frame, text="🔄  Status: Pending Rotation",
+                         bg="#FFF7ED", fg="#92400E", font=("Calibri", 10, "bold"),
+                         anchor="w", padx=8, pady=4, relief="groove").pack(fill="x")
+                tk.Label(status_frame,
+                         text="This shoe has been flagged for rotation by a supervisor. Has the rotation been done?",
+                         bg="#F8FAFC", fg="#1E293B", font=("Calibri", 9),
+                         anchor="w", wraplength=380).pack(fill="x", pady=(4, 6))
+                rot_confirm_var = tk.StringVar(value="")
+                reg_state["rotation_var"]  = rot_confirm_var
+                reg_state["condition_var"] = None
+                reg_state["status"] = "case_c"
+                rot_row = tk.Frame(status_frame, bg="#F8FAFC")
+                rot_row.pack(fill="x")
+
+                def _c_no():
+                    rot_confirm_var.set("no")
+                    btn_c_no.config(relief="sunken", bg="#DCFCE7")
+                    btn_c_yes.config(relief="raised", bg="#F1F5F9")
+
+                def _c_yes():
+                    rot_confirm_var.set("yes")
+                    btn_c_yes.config(relief="sunken", bg="#DCFCE7")
+                    btn_c_no.config(relief="raised", bg="#F1F5F9")
+
+                btn_c_no  = tk.Button(rot_row, text="No, not yet",   command=_c_no,
+                                      bg="#F1F5F9", fg="#1E293B", font=("Calibri", 10),
+                                      relief="raised", padx=12, pady=4, cursor="hand2")
+                btn_c_yes = tk.Button(rot_row, text="Yes, just done", command=_c_yes,
+                                      bg="#F1F5F9", fg="#1E293B", font=("Calibri", 10),
+                                      relief="raised", padx=12, pady=4, cursor="hand2")
+                btn_c_no.pack(side="left", padx=(0, 8))
+                btn_c_yes.pack(side="left")
+
+            elif rot_status == "rotated_once":
+                tk.Label(status_frame, text="✅  Status: Rotated Once — second side in use",
+                         bg="#F0FDF4", fg="#166534", font=("Calibri", 10, "bold"),
+                         anchor="w", padx=8, pady=4, relief="groove").pack(fill="x")
+                tk.Label(status_frame, text="Shoe is on its second side. Proceed with inspection.",
+                         bg="#F8FAFC", fg="#64748B", font=("Calibri", 9),
+                         anchor="w", wraplength=380).pack(fill="x", pady=(4, 0))
+
+            elif rot_status == "retired":
+                tk.Label(status_frame, text="🚫  This shoe has been retired.",
+                         bg="#FEE2E2", fg="#991B1B", font=("Calibri", 10, "bold"),
+                         anchor="w", padx=8, pady=4, relief="groove").pack(fill="x")
+                tk.Label(status_frame,
+                         text="This shoe is no longer in service. Do not inspect. Please check the position for a replacement shoe.",
+                         bg="#F8FAFC", fg="#991B1B", font=("Calibri", 9),
+                         anchor="w", wraplength=380).pack(fill="x", pady=(4, 0))
+                reg_state["start_disabled"] = True
+                if reg_state["start_btn"]:
+                    reg_state["start_btn"].config(state="disabled", bg="#94A3B8")
+
+    poll_id = {"after_id": None}
+
+    def _on_destroy(event):
+        if event.widget is root and poll_id["after_id"]:
+            try:
+                root.after_cancel(poll_id["after_id"])
+            except Exception:
+                pass
+    root.bind("<Destroy>", _on_destroy)
+
+    def _poll_asset_change():
+        try:
+            if not root.winfo_exists():
+                return
+        except Exception:
+            return
+        current = get_asset_id()
+        if current and current != last_asset["val"]:
+            last_asset["val"] = current
+            _clear_status_frame()
+            tk.Label(status_frame, text="⏳  Checking registration...",
+                     bg="#F8FAFC", fg="#64748B", font=("Calibri", 9),
+                     anchor="w").pack(fill="x", pady=(8, 0))
+            _threading.Thread(target=_do_lookup, args=(current,), daemon=True).start()
+        poll_id["after_id"] = root.after(400, _poll_asset_change)
+
+    poll_id["after_id"] = root.after(600, _poll_asset_change)
     root.mainloop()
     return result["technician_name"], result["asset_id"]
 
