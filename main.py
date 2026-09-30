@@ -210,11 +210,11 @@ This ensures full surface coverage for the YOLO defect model.
 
     _c1, _c2, _c3 = st.columns(3)
     with _c1:
-        st.image("app/assets/left_15.jpg", caption="Shot 1 — Left 15°", use_container_width=True)
+        st.image("app/assets/left_15.jpg", caption="Shot 1 — Left 15°", width="stretch")
     with _c2:
-        st.image("app/assets/centre_0.jpg", caption="Shot 2 — Centre 0°", use_container_width=True)
+        st.image("app/assets/centre_0.jpg", caption="Shot 2 — Centre 0°", width="stretch")
     with _c3:
-        st.image("app/assets/right_15.jpg", caption="Shot 3 — Right 15°", use_container_width=True)
+        st.image("app/assets/right_15.jpg", caption="Shot 3 — Right 15°", width="stretch")
 
     st.markdown("""
 **How to capture:**
@@ -234,8 +234,8 @@ This ensures full surface coverage for the YOLO defect model.
 
     st.markdown("### 🔌 Method 1 — Wired Station (DJI Action 3 via USB)")
     _img1_col, _img1b_col = st.columns(2)
-    _img1_col.image("app/assets/method1_wired.png", caption="DJI Action 3 connected to laptop via USB-C", use_container_width=True)
-    _img1b_col.image("app/assets/method1_wired_popup.png", caption="Capture Tips popup — shown before the station launches", use_container_width=True)
+    _img1_col.image("app/assets/method1_wired.png", caption="DJI Action 3 connected to laptop via USB-C", width="stretch")
+    _img1b_col.image("app/assets/method1_wired_popup.png", caption="Capture Tips popup — shown before the station launches", width="stretch")
     st.markdown("""
 **When to use:** LRV is stationary in the depot, laptop is nearby, cable can reach the camera.
 
@@ -251,13 +251,13 @@ This ensures full surface coverage for the YOLO defect model.
 
     st.markdown("### 📡 Method 2 — Wireless Station (DJI Action 3 via Wi-Fi / RTMP)")
     _img2_col, _ = st.columns([0.6, 0.4])
-    _img2_col.image("app/assets/method2_wireless.png", caption="DJI Wireless Station popup — enter RTMP URL and click Connect", use_container_width=True)
+    _img2_col.image("app/assets/method2_wireless.png", caption="DJI Wireless Station popup — enter RTMP URL and click Connect", width="stretch")
     st.markdown("**DJI Mimo App Setup:**")
     _m2a, _m2b, _m2gap = st.columns([0.25, 0.25, 0.5])
-    _m2a.image("app/assets/method2_mimo_platform.png", caption="Step 1 — Select RTMP as livestream platform", use_container_width=True)
-    _m2b.image("app/assets/method2_mimo_settings.png", caption="Step 2 — Enter RTMP URL, set 1080p UHD, Auto quality", use_container_width=True)
+    _m2a.image("app/assets/method2_mimo_platform.png", caption="Step 1 — Select RTMP as livestream platform", width="stretch")
+    _m2b.image("app/assets/method2_mimo_settings.png", caption="Step 2 — Enter RTMP URL, set 1080p UHD, Auto quality", width="stretch")
     _m2c, _ = st.columns([0.35, 0.65])
-    _m2c.image("app/assets/method2_mimo_streaming.png", caption="Step 3 — DJI Action 3 preparing to livestream", use_container_width=True)
+    _m2c.image("app/assets/method2_mimo_streaming.png", caption="Step 3 — DJI Action 3 preparing to livestream", width="stretch")
     st.markdown("""
 **When to use:** LRV is at a distance, cable cannot reach, or you prefer a wireless setup.
 
@@ -275,7 +275,7 @@ This ensures full surface coverage for the YOLO defect model.
 
     st.markdown("### 📱 Method 3 — Mobile Capture Station (Phone Camera)")
     _m3_img, _m3_txt = st.columns([0.25, 0.75])
-    _m3_img.image("app/assets/method3_mobile.png", caption="Mobile Capture Station — open in your phone browser", use_container_width=True)
+    _m3_img.image("app/assets/method3_mobile.png", caption="Mobile Capture Station — open in your phone browser", width="stretch")
     with _m3_txt:
         st.markdown("""
 **When to use:** Quick spot checks or on-the-go capture without the DJI camera.
@@ -290,7 +290,7 @@ This ensures full surface coverage for the YOLO defect model.
 
     st.markdown("### 📡 Method 4 — DJI Wireless Station (Mobile Browser)")
     _m4_img, _m4_txt = st.columns([0.25, 0.75])
-    _m4_img.image("app/assets/method4_wireless_mobile.png", caption="DJI Wireless Station (Mobile) — connect to stream from your phone browser", use_container_width=True)
+    _m4_img.image("app/assets/method4_wireless_mobile.png", caption="DJI Wireless Station (Mobile) — connect to stream from your phone browser", width="stretch")
     with _m4_txt:
         st.markdown("""
 **When to use:** You want to monitor or capture wirelessly from your phone while the DJI streams over Wi-Fi.
