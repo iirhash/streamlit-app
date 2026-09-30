@@ -1553,6 +1553,236 @@ def _show_detection_frequency(supabase):
             st.error(f"Could not load detection frequency: {e}")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Last Inspected Summary (Tab 1)
+# ──────────────────────────────────────────────────────────────────────────────
+def _show_last_inspected_summary(supabase):
+    st.markdown('<div class="section-header">Last Inspected — Per Shoe</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-intro">Shows when each registered shoe was last captured by the camera station. '
+        'Shoes not inspected in the last 7 days are flagged so nothing gets overlooked.</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        rows = (
+            supabase.table("defect_records")
+            .select("shoe_id, captured_at")
+            .order("captured_at", desc=True)
+            .execute()
+            .data
+        )
+        if not rows:
+            st.info("No inspection records found yet.")
+            return
+
+        df = pd.DataFrame(rows)
+        df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True)
+
+        # Keep only the most recent record per shoe
+        latest = (
+            df.sort_values("captured_at", ascending=False)
+            .groupby("shoe_id", as_index=False)
+            .first()
+        )
+
+        now = pd.Timestamp.now(tz="UTC")
+        latest["days_ago"] = (now - latest["captured_at"]).dt.days
+        latest["last_inspected"] = latest["captured_at"].dt.strftime("%d %b %Y  %H:%M")
+        latest = latest.sort_values("shoe_id")
+
+        cols = st.columns(4)
+        for idx, row in latest.reset_index(drop=True).iterrows():
+            days = int(row["days_ago"])
+            if days == 0:
+                badge_color, badge_text = "#16A34A", "Today"
+            elif days <= 3:
+                badge_color, badge_text = "#2563EB", f"{days}d ago"
+            elif days <= 7:
+                badge_color, badge_text = "#D97706", f"{days}d ago"
+            else:
+                badge_color, badge_text = "#DC2626", f"{days}d ago ⚠️"
+
+            with cols[idx % 4]:
+                st.markdown(
+                    f"""<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;
+                        padding:14px 12px;margin-bottom:10px;text-align:center;">
+                        <div style="font-size:13px;font-weight:700;color:#1E3A5F;margin-bottom:6px;">
+                            {row['shoe_id']}
+                        </div>
+                        <div style="display:inline-block;background:{badge_color};color:white;
+                            border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600;
+                            margin-bottom:6px;">{badge_text}</div>
+                        <div style="font-size:11px;color:#64748B;">{row['last_inspected']}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+    except Exception as e:
+        st.error(f"Could not load last inspected summary: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Defect Type Breakdown per Shoe (Tab 2)
+# ──────────────────────────────────────────────────────────────────────────────
+def _show_defect_breakdown_per_shoe(supabase):
+    st.markdown('<div class="section-header">Defect Type Breakdown — Per Shoe</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-intro">Counts of each defect class detected per shoe across all inspections. '
+        'Helps identify which shoe has the most varied or concentrated defect profile.</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        rows = (
+            supabase.table("defect_records")
+            .select("shoe_id, defect_type")
+            .neq("defect_type", "none")
+            .execute()
+            .data
+        )
+        if not rows:
+            st.info("No defect records found yet.")
+            return
+
+        df = pd.DataFrame(rows)
+        pivot = (
+            df.groupby(["shoe_id", "defect_type"])
+            .size()
+            .reset_index(name="count")
+        )
+
+        shoes = sorted(pivot["shoe_id"].unique())
+        DEFECT_COLORS = {
+            "wear":        "#E53E3E",
+            "crack":       "#DD6B20",
+            "pore":        "#D69E2E",
+            "scratch":     "#38A169",
+            "scuff marks": "#3182CE",
+            "oxidation":   "#805AD5",
+            "water mark":  "#319795",
+        }
+
+        # Summary cards row — top defect per shoe
+        summary_cols = st.columns(len(shoes))
+        for i, shoe in enumerate(shoes):
+            sub = pivot[pivot["shoe_id"] == shoe].sort_values("count", ascending=False)
+            top_def  = sub.iloc[0]["defect_type"] if not sub.empty else "—"
+            top_cnt  = int(sub.iloc[0]["count"])  if not sub.empty else 0
+            total    = int(sub["count"].sum())
+            color    = DEFECT_COLORS.get(top_def, "#718096")
+            with summary_cols[i]:
+                st.markdown(
+                    f"""<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;
+                        padding:12px 10px;text-align:center;margin-bottom:10px;">
+                        <div style="font-size:12px;font-weight:700;color:#1E3A5F;">{shoe}</div>
+                        <div style="display:inline-block;background:{color};color:white;
+                            border-radius:10px;padding:2px 9px;font-size:11px;font-weight:600;
+                            margin:5px 0;">{top_def}</div>
+                        <div style="font-size:11px;color:#475569;">{top_cnt} detections</div>
+                        <div style="font-size:10px;color:#94A3B8;">{total} total defects</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        # Grouped bar chart — all shoes
+        import plotly.graph_objects as go
+        all_defect_types = sorted(pivot["defect_type"].unique())
+        fig = go.Figure()
+        for defect in all_defect_types:
+            y_vals = []
+            for shoe in shoes:
+                row_val = pivot[(pivot["shoe_id"] == shoe) & (pivot["defect_type"] == defect)]
+                y_vals.append(int(row_val["count"].values[0]) if not row_val.empty else 0)
+            fig.add_trace(go.Bar(
+                name=defect,
+                x=shoes,
+                y=y_vals,
+                marker_color=DEFECT_COLORS.get(defect, "#A0AEC0"),
+            ))
+
+        fig.update_layout(
+            barmode="group",
+            height=340,
+            margin=dict(l=10, r=10, t=10, b=30),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(title="Shoe ID", tickfont=dict(size=11)),
+            yaxis=dict(title="Detection Count", showgrid=True, gridcolor="#F1F5F9"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Could not load defect breakdown: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Recent Inspection Sessions Log (Tab 3)
+# ──────────────────────────────────────────────────────────────────────────────
+def _show_recent_sessions_log(supabase):
+    try:
+        rows = (
+            supabase.table("inspection_sessions")
+            .select("session_id, shoe_id, inspector_name, created_at, status")
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+            .data
+        )
+        if not rows:
+            st.info("No inspection sessions recorded yet.")
+            return
+
+        sessions_df = pd.DataFrame(rows)
+        sessions_df["created_at"] = pd.to_datetime(sessions_df["created_at"], utc=True)
+
+        # Pull defect counts per session from defect_records
+        defect_rows = (
+            supabase.table("defect_records")
+            .select("session_id, defect_type")
+            .neq("defect_type", "none")
+            .execute()
+            .data
+        )
+        defect_counts = {}
+        if defect_rows:
+            for r in defect_rows:
+                sid = r.get("session_id")
+                if sid:
+                    defect_counts[sid] = defect_counts.get(sid, 0) + 1
+
+        sessions_df["defects_found"] = sessions_df["session_id"].map(
+            lambda s: defect_counts.get(s, 0)
+        )
+
+        # Render as a clean table
+        display_cols = ["shoe_id", "inspector_name", "created_at", "status", "defects_found"]
+        display_df = sessions_df[display_cols].copy()
+        display_df.columns = ["Shoe ID", "Inspector", "Date & Time", "Status", "Defects Found"]
+        display_df["Date & Time"] = display_df["Date & Time"].dt.strftime("%d %b %Y  %H:%M")
+
+        def _highlight_defects(val):
+            if isinstance(val, int) and val > 0:
+                return "color:#DC2626;font-weight:600;"
+            return ""
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Shoe ID":        st.column_config.TextColumn("Shoe ID", width="medium"),
+                "Inspector":      st.column_config.TextColumn("Inspector", width="medium"),
+                "Date & Time":    st.column_config.TextColumn("Date & Time", width="medium"),
+                "Status":         st.column_config.TextColumn("Status", width="small"),
+                "Defects Found":  st.column_config.NumberColumn("Defects Found", width="small"),
+            },
+        )
+        st.caption(f"Showing last {len(display_df)} sessions · most recent first")
+
+    except Exception as e:
+        st.error(f"Could not load inspection sessions: {e}")
+
+
 def show():
     _inject_css()
     st.markdown("## 👟 Collector Shoe Wear Tracking")
@@ -1575,7 +1805,7 @@ def show():
     _TAB_LABELS = [
         "📊 Overview",
         "📈 Trends & Analysis",
-        "📋 Inspection Records",
+        "🗃 Shoe Registry",
     ]
     if "cs_active_tab" not in st.session_state:
         st.session_state["cs_active_tab"] = 0
@@ -1615,6 +1845,11 @@ def show():
         # ── Fleet Status ───────────────────────────────────────
         _show_fleet_status(fleet, shoes_df, daily_sel, supabase)
 
+        st.divider()
+
+        # ── Last Inspected Summary ─────────────────────────────
+        _show_last_inspected_summary(supabase)
+
 
     # ══════════════════════════════════════════════════════════
     # TAB 2 — TRENDS & ANALYSIS
@@ -1625,6 +1860,11 @@ def show():
         st.markdown('<div class="section-header">Visual Wear Progression (YOLO Confidence Trend)</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-intro">Tracks YOLO detection confidence scores over time per shoe. A rising trend may indicate the defect is becoming more visually prominent. Not a direct measure of physical severity — always verify with a depth gauge.</div>', unsafe_allow_html=True)
         _show_confidence_progression(supabase)
+
+        st.divider()
+
+        # ── Defect Type Breakdown per Shoe ─────────────────────
+        _show_defect_breakdown_per_shoe(supabase)
 
         st.divider()
 
@@ -1647,7 +1887,7 @@ def show():
         _show_inspection_comparison(supabase)
 
     # ══════════════════════════════════════════════════════════
-    # TAB 3 — INSPECTION RECORDS
+    # TAB 3 — SHOE REGISTRY
     # ══════════════════════════════════════════════════════════
     if tab3:
         # ── Registered shoes ───────────────────────────────────
@@ -1760,3 +2000,9 @@ def show():
                                 st.rerun()
         else:
             st.info("📭 No shoes registered yet. Register a shoe via the Camera Station.")
+
+        # ── Recent Inspection Sessions ──────────────────────────
+        st.divider()
+        st.markdown('<div class="section-header">Recent Inspection Sessions</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-intro">The last 20 inspection sessions logged by the camera station, including which shoe was inspected, who ran it, and what defects were found.</div>', unsafe_allow_html=True)
+        _show_recent_sessions_log(supabase)
