@@ -1410,6 +1410,20 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
 
     doc.add_paragraph()
 
+    # ── Snapshot disclaimer ────────────────────────────────────
+    disclaimer = doc.add_paragraph(
+        "⚠️ This report is a point-in-time snapshot. "
+        "Pending review counts and defect statuses may have changed since export. "
+        "Refer to the live dashboard for current figures."
+    )
+    disclaimer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if disclaimer.runs:
+        disclaimer.runs[0].font.italic = True
+        disclaimer.runs[0].font.size   = Pt(9)
+        disclaimer.runs[0].font.color.rgb = RGBColor(0x92, 0x40, 0x0E)
+
+    doc.add_paragraph()
+
     meta = doc.add_table(rows=5, cols=2)
     meta.alignment = WD_TABLE_ALIGNMENT.CENTER
     meta_data = [
