@@ -267,7 +267,7 @@ def load_fleet_status(_sb):
       - last_inspected: most recent detected_at or None
       - worst_defect: defect_type with highest confidence (non-none)
       - worst_confidence: that confidence value
-      - status: 'critical' | 'needs_attention' | 'operational' | 'unknown'
+      - status: 'monitor_carefully' | 'operational' | 'not_inspected'
     """
     try:
         # All registered shoes
@@ -319,7 +319,7 @@ def load_fleet_status(_sb):
                     "last_inspected": None,
                     "worst_defect": None,
                     "worst_confidence": None,
-                    "status": "unknown",
+                    "status": "not_inspected",
                 }
                 continue
 
@@ -342,12 +342,8 @@ def load_fleet_status(_sb):
             # Worst = highest confidence non-none defect
             worst = max(real_dets, key=lambda x: x["confidence"])
 
-            if worst["defect_type"] in CRITICAL_DEFECTS and worst["confidence"] >= 85:
-                status = "critical"
-            elif worst["confidence"] >= 70:
-                status = "needs_attention"
-            else:
-                status = "operational"
+            # Any non-none defect detected → monitor carefully
+            status = "monitor_carefully"
 
             fleet[lrv] = {
                 "shoes": shoe_ids,
@@ -451,10 +447,9 @@ def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
     """Renders the Fleet Status badge row + summary table above shoe cards."""
 
     STATUS_CONF = {
-        "critical":        ("🔴", "Critical",        "#FEE2E2", "#DC2626", "#B91C1C"),
-        "needs_attention": ("🟡", "Needs Attention",  "#FEF9C3", "#CA8A04", "#92400E"),
-        "operational":     ("🟢", "Operational",      "#DCFCE7", "#16A34A", "#14532D"),
-        "unknown":         ("⚪", "Unknown",           "#F1F5F9", "#64748B", "#334155"),
+        "monitor_carefully": ("🟡", "Monitor Carefully", "#FEF9C3", "#CA8A04", "#92400E"),
+        "operational":       ("🟢", "Operational",       "#DCFCE7", "#16A34A", "#14532D"),
+        "not_inspected":     ("⚪", "Not Inspected",     "#F1F5F9", "#64748B", "#334155"),
     }
 
     # ── Header + lock/override ─────────────────────────────────
@@ -463,9 +458,10 @@ def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
     with h1:
         if daily_sel:
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime, timezone, timedelta
                 dt = datetime.fromisoformat(daily_sel["set_at"].replace("Z", "+00:00"))
-                local_time = dt.strftime("%d %b %Y %H:%M")
+                sgt = dt + timedelta(hours=8)
+                local_time = sgt.strftime("%d %b %Y %H:%M SGT")
             except Exception:
                 local_time = daily_sel.get("set_at", "")[:16]
             st.markdown(
@@ -497,8 +493,8 @@ def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
     selected_lrvs = daily_sel.get("lrv_ids") or []
     fleet = {k: v for k, v in fleet.items() if k in selected_lrvs}
 
-    # Sort: critical first, then needs_attention, operational, unknown
-    order = {"critical": 0, "needs_attention": 1, "operational": 2, "unknown": 3}
+    # Sort: monitor_carefully first, then operational, not_inspected
+    order = {"monitor_carefully": 0, "operational": 1, "not_inspected": 2}
     sorted_lrvs = sorted(fleet.keys(), key=lambda x: order.get(fleet[x]["status"], 9))
 
     # Active filter from session state
@@ -542,16 +538,18 @@ def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
             last = "Never"
             if info["last_inspected"]:
                 try:
-                    from datetime import datetime, timezone
+                    from datetime import datetime, timezone, timedelta
                     dt = datetime.fromisoformat(info["last_inspected"].replace("Z", "+00:00"))
+                    sgt = dt + timedelta(hours=8)
                     diff = datetime.now(timezone.utc) - dt
                     days = diff.days
-                    last = "Today" if days == 0 else f"{days}d ago"
+                    date_str = sgt.strftime("%d-%m-%Y")
+                    last = f"Today ({date_str})" if days == 0 else f"{days}d ago ({date_str})"
                 except Exception:
                     last = info["last_inspected"][:10]
 
             defect_str = "—" if not info["worst_defect"] or info["worst_defect"] == "none" else \
-                f"{info['worst_defect']} ({info['worst_confidence']}%)"
+                info["worst_defect"]
 
             rows.append({
                 "LRV":              lrv,
@@ -1098,6 +1096,185 @@ def _show_confidence_progression(supabase):
                         )
 
 
+def _show_inspection_comparison(supabase):
+    """
+    Side-by-side inspection image comparison per shoe.
+    Lazy-loaded — images are only fetched when the user opens an expander.
+    Default view: most recent vs second-most-recent session per shoe.
+    Advanced: user can pick any two sessions to compare.
+    """
+    from datetime import timedelta
+
+    st.markdown('<div class="section-header">🔍 Inspection Comparison</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-intro">Compare annotated images between any two inspection sessions per shoe. '
+        'By default shows the latest vs previous session. Images are loaded only when you open a shoe.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Load session metadata only (no images yet) ────────────────
+    # Only sessions that have at least one detection record
+    try:
+        det_resp = supabase.table("defect_records") \
+            .select("session_id") \
+            .execute()
+        det_rows = det_resp.data or []
+        valid_session_ids = list({r["session_id"] for r in det_rows if r.get("session_id")})
+    except Exception as e:
+        st.error(f"Could not load detection records: {e}")
+        return
+
+    if not valid_session_ids:
+        st.info("📭 No inspection sessions with detections found.")
+        return
+
+    try:
+        resp = supabase.table("inspection_sessions") \
+            .select("id, asset_id, started_at, technician_name") \
+            .in_("id", valid_session_ids) \
+            .order("started_at", desc=True) \
+            .execute()
+        sessions = resp.data or []
+    except Exception as e:
+        st.error(f"Could not load inspection sessions: {e}")
+        return
+
+    if not sessions:
+        st.info("📭 No inspection sessions found.")
+        return
+
+    # Group sessions by shoe
+    from collections import defaultdict
+    shoe_sessions: dict = defaultdict(list)
+    for s in sessions:
+        shoe_sessions[s["asset_id"]].append(s)
+
+    shoes = sorted(shoe_sessions.keys())
+    if not shoes:
+        st.info("📭 No shoes with inspection data.")
+        return
+
+    shoe_sel = st.selectbox("Select shoe", shoes, key="ic_shoe_sel")
+    this_shoe_sessions = shoe_sessions[shoe_sel]  # already sorted desc by started_at
+
+    if len(this_shoe_sessions) < 2:
+        st.info("⚠️ At least 2 inspection sessions are needed to compare. Only 1 session found for this shoe.")
+        return
+
+    # ── Session picker ─────────────────────────────────────────────
+    def _fmt_session(s):
+        try:
+            dt = datetime.fromisoformat(s["started_at"].replace("Z", "+00:00"))
+            sgt = dt + timedelta(hours=8)
+            return sgt.strftime("%d %b %Y %H:%M") + f" — {s['technician_name'] or 'Unknown'}"
+        except Exception:
+            return s["id"][:8]
+
+    session_labels = [_fmt_session(s) for s in this_shoe_sessions]
+    session_ids    = [s["id"] for s in this_shoe_sessions]
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.caption("**Previous inspection**")
+        prev_idx = st.selectbox(
+            "Previous", options=range(len(session_labels)),
+            format_func=lambda i: session_labels[i],
+            index=1,  # default: second-most-recent
+            key="ic_prev_sel",
+        )
+    with col_b:
+        st.caption("**Current inspection**")
+        curr_idx = st.selectbox(
+            "Current", options=range(len(session_labels)),
+            format_func=lambda i: session_labels[i],
+            index=0,  # default: most recent
+            key="ic_curr_sel",
+        )
+
+    if prev_idx == curr_idx:
+        st.warning("Please select two different sessions to compare.")
+        return
+
+    prev_session_id = session_ids[prev_idx]
+    curr_session_id = session_ids[curr_idx]
+
+    # ── Lazy load: fetch detection data only when user triggers compare ──
+    with st.expander("🔍 Load Comparison", expanded=False):
+        try:
+            def _get_session_captures(session_id):
+                """
+                Returns unique captures for a session.
+                Each capture = one unique annotated_image_path with its defects grouped.
+                """
+                r = supabase.table("defect_records") \
+                    .select("defect_type, confidence, annotated_image_path, raw_image_path, detected_at") \
+                    .eq("session_id", session_id) \
+                    .order("detected_at") \
+                    .execute()
+                rows = r.data or []
+                if not rows:
+                    return []
+                # Deduplicate by annotated_image_path — group defects per image
+                seen = {}
+                for row in rows:
+                    path = row.get("annotated_image_path") or row.get("raw_image_path") or ""
+                    if path not in seen:
+                        seen[path] = {"path": path, "detected_at": row["detected_at"], "defects": []}
+                    seen[path]["defects"].append({
+                        "defect_type": row["defect_type"],
+                        "confidence":  row["confidence"],
+                    })
+                return list(seen.values())
+
+            def _signed_url_ic(path, bucket="annotated-photos", expires=120):
+                if not path:
+                    return None
+                try:
+                    r = supabase.storage.from_(bucket).create_signed_url(path, expires)
+                    return r.get("signedURL") or r.get("signedUrl") or None
+                except Exception:
+                    return None
+
+            prev_captures = _get_session_captures(prev_session_id)
+            curr_captures = _get_session_captures(curr_session_id)
+
+            def _render_session_captures(captures, label, sess_label):
+                st.markdown(f"**{label}**  \n<span style='font-size:12px;color:#64748B;'>{sess_label}</span>", unsafe_allow_html=True)
+                if not captures:
+                    st.info("No images found for this session.")
+                    return
+                for i, cap in enumerate(captures):
+                    if len(captures) > 1:
+                        st.caption(f"Angle {i+1} of {len(captures)}")
+                    img_url = _signed_url_ic(cap["path"])
+                    if img_url:
+                        st.image(img_url, use_container_width=True)
+                    else:
+                        st.warning("Image not available.")
+                    # List all defects detected in this image
+                    non_none = [d for d in cap["defects"] if d["defect_type"] != "none"]
+                    if non_none:
+                        for d in sorted(non_none, key=lambda x: x["confidence"], reverse=True):
+                            st.markdown(f"⚠️ **{d['defect_type']}** — {d['confidence']:.0%}")
+                    else:
+                        st.success("✅ No defect detected")
+                    try:
+                        dt  = datetime.fromisoformat(cap["detected_at"].replace("Z", "+00:00"))
+                        sgt = dt + timedelta(hours=8)
+                        st.caption(sgt.strftime("%d %b %Y %H:%M SGT"))
+                    except Exception:
+                        pass
+
+            left_col, right_col = st.columns(2)
+            with left_col:
+                _render_session_captures(prev_captures, "Previous", session_labels[prev_idx])
+            with right_col:
+                _render_session_captures(curr_captures, "Current", session_labels[curr_idx])
+
+        except Exception as e:
+            st.error(f"Could not load comparison data: {e}")
+
+
 def _show_defect_heatmap(supabase):
     """Shows a heatmap of worst defect per shoe position across all LRVs."""
     st.markdown('<div class="section-header">Per-LRV Defect Heatmap</div>',
@@ -1453,6 +1630,7 @@ def show():
             )
         else:
             st.markdown('<div class="section-intro">Latest recorded thickness and pass/fail status per collector shoe.</div>', unsafe_allow_html=True)
+        st.caption("ℹ️ Filter shows shoe cards for the selected LRV. Physical measurements are required to display thickness cards.")
 
         shoe_ids = corr_df["shoe_id"].unique().tolist() if "shoe_id" in corr_df.columns and not corr_df.empty else []
 
@@ -1515,172 +1693,6 @@ def show():
     # ══════════════════════════════════════════════════════════
     if tab2:
 
-        # ── Thickness Degradation ──────────────────────────────
-        st.markdown('<div class="section-header">Thickness Degradation Over Time</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-intro">Tracks physical shoe thickness from each PM inspection. Dashed lines mark severity thresholds — rotation required at ≥4mm wear (dry) / ≥3mm (rainy).</div>', unsafe_allow_html=True)
-
-        if not degrad_df.empty and "thickness_mm" in degrad_df.columns:
-            shoe_list  = degrad_df["shoe_id"].unique().tolist() if "shoe_id" in degrad_df.columns else []
-            trend_shoe = st.selectbox("Select shoe", ["All"] + shoe_list, key="trend_shoe") if len(shoe_list) > 1 else "All"
-            trend_data = degrad_df if trend_shoe == "All" else degrad_df[degrad_df["shoe_id"] == trend_shoe]
-
-            if not trend_data.empty:
-                trend_data = trend_data.copy()
-                trend_data["inspected_at"] = pd.to_datetime(trend_data["inspected_at"])
-                fig = px.line(
-                    trend_data, x="inspected_at", y="thickness_mm",
-                    color="shoe_id" if len(shoe_list) > 1 else None,
-                    markers=True,
-                    color_discrete_sequence=[PASS_COLOR, FAIL_COLOR],
-                )
-                try:
-                    thresh = get_supabase().table("wear_thresholds").select("*").execute()
-                    if thresh.data:
-                        for t in thresh.data:
-                            if t.get("max_thickness_mm"):
-                                fig.add_hline(
-                                    y=t["max_thickness_mm"], line_dash="dash",
-                                    line_color=SEVERITY_COLOR.get(t["severity"], "#888"),
-                                    annotation_text=f"{t['severity']} threshold",
-                                    annotation_position="right",
-                                )
-                except:
-                    pass
-                fig.update_layout(
-                    height=300, margin=dict(l=0, r=80, t=10, b=0),
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(showgrid=False, title=""),
-                    yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title="Thickness (mm)"),
-                    legend=dict(orientation="h", y=-0.2),
-                )
-                st.plotly_chart(fig)
-                st.caption("Dashed lines show severity thresholds — when the trend line crosses a threshold, that shoe has entered a new wear level.")
-
-                with st.expander("📊 Chart Interpretation", expanded=False):
-                    for shoe in trend_data["shoe_id"].unique() if "shoe_id" in trend_data.columns else []:
-                        shoe_data = trend_data[trend_data["shoe_id"] == shoe].sort_values("inspected_at")
-                        if len(shoe_data) < 2:
-                            continue
-                        first_thick = shoe_data.iloc[0]["thickness_mm"]
-                        last_thick  = shoe_data.iloc[-1]["thickness_mm"]
-                        total_wear  = round(first_thick - last_thick, 2)
-                        weeks       = max((shoe_data.iloc[-1]["inspected_at"] - shoe_data.iloc[0]["inspected_at"]).days / 7, 0.1)
-                        rate        = round(total_wear / weeks, 2)
-                        wear_depth  = round(16.0 - last_thick, 2)
-                        if wear_depth < 2:      sev, sev_color = "none — within normal range", PASS_COLOR
-                        elif wear_depth < 4:    sev, sev_color = "minor — monitor closely", WARN_COLOR
-                        elif wear_depth < 5:    sev, sev_color = "moderate — rotation required", "#E85D04"
-                        else:                   sev, sev_color = "severe — replace immediately", FAIL_COLOR
-                        remaining_to_rotate = max((16.0 - 4.0) - (16.0 - last_thick), 0)
-                        weeks_to_rotate = round(remaining_to_rotate / rate, 1) if rate > 0 else None
-                        st.markdown(
-                            f"**{shoe}** — Current thickness: **{last_thick}mm** "
-                            f"(wear depth: {wear_depth}mm). "
-                            f"Severity: :{sev_color}[**{sev}**].  \n"
-                            f"Total wear over {round(weeks,1)} weeks: **{total_wear}mm** "
-                            f"at an average rate of **{rate}mm/week**."
-                        )
-                        if weeks_to_rotate and wear_depth < 4:
-                            st.info(f"📅 At current rate, **{shoe}** will reach the 4mm rotation threshold in approximately **{weeks_to_rotate} weeks**.")
-                        elif wear_depth >= 4 and wear_depth < 5:
-                            st.warning(f"⚠️ **{shoe}** has reached the rotation threshold — action required.")
-                        elif wear_depth >= 5:
-                            st.error(f"🔴 **{shoe}** has exceeded the 5mm replacement limit — replace immediately.")
-        else:
-            st.info("📭 No physical measurement data yet. Data will appear once PM inspections are submitted.")
-
-        st.divider()
-
-        # ── Wear Rate ──────────────────────────────────────────
-        st.markdown('<div class="section-header">Wear Rate (mm/week)</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-intro">Session-by-session wear rate (bars) vs cumulative average (dotted line). Bars significantly above the fleet average may indicate abnormal wear or a chip-off event.</div>', unsafe_allow_html=True)
-
-        if not degrad_df.empty and "thickness_mm" in degrad_df.columns:
-            try:
-                import numpy as np
-                import plotly.graph_objects as go
-
-                wear_rate_data = []
-                wr_shoe_ids = degrad_df["shoe_id"].unique().tolist() if "shoe_id" in degrad_df.columns else []
-
-                for shoe in wr_shoe_ids:
-                    shoe_data = degrad_df[degrad_df["shoe_id"] == shoe].copy()
-                    shoe_data["inspected_at"] = pd.to_datetime(shoe_data["inspected_at"])
-                    shoe_data = shoe_data.sort_values("inspected_at")
-                    if len(shoe_data) < 2:
-                        continue
-                    for i in range(1, len(shoe_data)):
-                        prev  = shoe_data.iloc[i-1]
-                        curr  = shoe_data.iloc[i]
-                        weeks = max((curr["inspected_at"] - prev["inspected_at"]).days / 7, 0.1)
-                        rate  = round((prev["thickness_mm"] - curr["thickness_mm"]) / weeks, 3)
-                        wear_rate_data.append({"shoe_id": shoe, "date": curr["inspected_at"], "rate_mm_week": max(rate, 0), "type": "Session rate"})
-                    first_thick = shoe_data.iloc[0]["thickness_mm"]
-                    first_date  = shoe_data.iloc[0]["inspected_at"]
-                    for i in range(1, len(shoe_data)):
-                        curr  = shoe_data.iloc[i]
-                        weeks = max((curr["inspected_at"] - first_date).days / 7, 0.1)
-                        rate  = round((first_thick - curr["thickness_mm"]) / weeks, 3)
-                        wear_rate_data.append({"shoe_id": shoe, "date": curr["inspected_at"], "rate_mm_week": max(rate, 0), "type": "Cumulative avg"})
-
-                if wear_rate_data:
-                    wr_df     = pd.DataFrame(wear_rate_data)
-                    wr_shoe   = st.selectbox("Select shoe", ["All"] + wr_shoe_ids, key="wr_shoe")
-                    if wr_shoe != "All":
-                        wr_df = wr_df[wr_df["shoe_id"] == wr_shoe]
-                    avg_rate   = round(wr_df[wr_df["type"] == "Session rate"]["rate_mm_week"].mean(), 3)
-                    session_df = wr_df[wr_df["type"] == "Session rate"]
-                    cumavg_df  = wr_df[wr_df["type"] == "Cumulative avg"]
-                    fig = go.Figure()
-                    colors = ["#0A8A72", "#C9382A", "#E8920A", "#6B21A8"]
-                    for idx, shoe in enumerate(wr_df["shoe_id"].unique()):
-                        s_data = session_df[session_df["shoe_id"] == shoe]
-                        fig.add_trace(go.Bar(x=s_data["date"], y=s_data["rate_mm_week"], name=f"{shoe} (session)", marker_color=colors[idx % len(colors)], opacity=0.7))
-                    for idx, shoe in enumerate(wr_df["shoe_id"].unique()):
-                        c_data = cumavg_df[cumavg_df["shoe_id"] == shoe]
-                        fig.add_trace(go.Scatter(x=c_data["date"], y=c_data["rate_mm_week"], name=f"{shoe} (cumulative avg)", mode="lines+markers", line=dict(color=colors[idx % len(colors)], dash="dot", width=2), marker=dict(size=6)))
-                    fig.add_hline(y=avg_rate, line_dash="dash", line_color="#E8920A", annotation_text=f"Fleet avg: {avg_rate}mm/week", annotation_position="right")
-                    fig.update_layout(
-                        height=320, margin=dict(l=0, r=120, t=10, b=0),
-                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                        xaxis=dict(showgrid=False, title=""),
-                        yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title="Wear rate (mm/week)"),
-                        legend=dict(orientation="h", y=-0.25), barmode="group",
-                    )
-                    st.plotly_chart(fig)
-                    st.caption("**Bars** — wear rate between each consecutive inspection.  **Dotted lines** — cumulative average.  **Amber dashed line** — fleet average.")
-
-                    with st.expander("📊 Chart Interpretation", expanded=False):
-                        st.markdown(f"**Fleet average wear rate:** {avg_rate}mm/week")
-                        st.markdown("---")
-                        for shoe in session_df["shoe_id"].unique():
-                            shoe_sessions = session_df[session_df["shoe_id"] == shoe]
-                            shoe_avg      = round(shoe_sessions["rate_mm_week"].mean(), 3)
-                            shoe_max      = round(shoe_sessions["rate_mm_week"].max(), 3)
-                            shoe_max_date = shoe_sessions.loc[shoe_sessions["rate_mm_week"].idxmax(), "date"].strftime("%d %b %Y")
-                            vs_fleet      = round(shoe_avg / avg_rate, 1) if avg_rate > 0 else 1
-                            if shoe_avg > avg_rate * 1.5:
-                                status = f"⚠️ **Above average** — wearing {vs_fleet}× faster than fleet average"
-                            elif shoe_avg < avg_rate * 0.5:
-                                status = f"✅ **Below average** — wearing slower than fleet average"
-                            else:
-                                status = f"✅ **Within normal range** — close to fleet average"
-                            st.markdown(f"**{shoe}** — Average wear rate: **{shoe_avg}mm/week** ({status}).  \nHighest session rate: **{shoe_max}mm/week** on {shoe_max_date}.")
-                            if shoe_max > avg_rate * 2:
-                                st.warning(f"The spike on {shoe_max_date} ({shoe_max}mm/week) is more than 2× the fleet average. This may indicate a chip-off event or abnormal contact condition. Inspect the shoe surface.")
-                    spikes = wr_df[(wr_df["type"] == "Session rate") & (wr_df["rate_mm_week"] > avg_rate * 2)]
-                    if not spikes.empty:
-                        for _, spike in spikes.iterrows():
-                            st.warning(f"⚠️ **{spike['shoe_id']}** showed abnormal wear rate of **{spike['rate_mm_week']:.2f}mm/week** on {spike['date'].strftime('%d %b %Y')} — more than 2× the fleet average ({avg_rate:.2f}mm/week). Inspect for chip-off or abnormal wear pattern.")
-                else:
-                    st.info("Not enough inspection sessions to calculate wear rate. Minimum 2 sessions per shoe required.")
-            except Exception as e:
-                st.error(f"Could not calculate wear rate: {e}")
-        else:
-            st.info("📭 No physical inspection data yet.")
-
-        st.divider()
-
         # ── YOLO Confidence Trend ──────────────────────────────
         st.markdown('<div class="section-header">Visual Wear Progression (YOLO Confidence Trend)</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-intro">Tracks YOLO detection confidence scores over time per shoe. A rising trend may indicate the defect is becoming more visually prominent. Not a direct measure of physical severity — always verify with a depth gauge.</div>', unsafe_allow_html=True)
@@ -1700,6 +1712,11 @@ def show():
 
         # ── Per-LRV Defect Heatmap ─────────────────────────────
         _show_defect_heatmap(supabase)
+
+        st.divider()
+
+        # ── Inspection Image Comparison ────────────────────────
+        _show_inspection_comparison(supabase)
 
     # ══════════════════════════════════════════════════════════
     # TAB 3 — INSPECTION RECORDS
