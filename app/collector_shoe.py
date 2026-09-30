@@ -1082,18 +1082,47 @@ def show():
 
     st.divider()
 
-    # ── 4-tab layout ───────────────────────────────────────────
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # ── Custom tab bar (persists across reruns via session_state) ─
+    _TAB_LABELS = [
         "📊 Overview",
         "📈 Trends & Analysis",
         "📋 Inspection Records",
-        "⚙️ Manage Shoes",
-    ])
+    ]
+    if "cs_active_tab" not in st.session_state:
+        st.session_state["cs_active_tab"] = 0
+
+    # Render tab buttons
+    _tab_cols = st.columns(len(_TAB_LABELS))
+    for _i, _label in enumerate(_TAB_LABELS):
+        _is_active = st.session_state["cs_active_tab"] == _i
+        _btn_style = (
+            "background:#1E3A5F;color:white;border:none;border-radius:8px 8px 0 0;"
+            "padding:8px 0;font-weight:600;cursor:pointer;width:100%;"
+        ) if _is_active else (
+            "background:#E2E8F0;color:#475569;border:none;border-radius:8px 8px 0 0;"
+            "padding:8px 0;font-weight:500;cursor:pointer;width:100%;"
+        )
+        if _tab_cols[_i].button(_label, key=f"_cs_tab_{_i}", use_container_width=True):
+            st.session_state["cs_active_tab"] = _i
+            st.rerun()
+
+    st.markdown('<hr style="margin:0 0 16px 0;border-color:#CBD5E1;">', unsafe_allow_html=True)
+
+    _active_tab_idx = st.session_state["cs_active_tab"]
+
+    # Fake tab contexts using if/elif blocks
+    _show_tab1 = (_active_tab_idx == 0)
+    _show_tab2 = (_active_tab_idx == 1)
+    _show_tab3 = (_active_tab_idx == 2)
+
+    tab1 = _show_tab1
+    tab2 = _show_tab2
+    tab3 = _show_tab3
 
     # ══════════════════════════════════════════════════════════
     # TAB 1 — OVERVIEW
     # ══════════════════════════════════════════════════════════
-    with tab1:
+    if tab1:
         # ── Shoe status cards ──────────────────────────────────
         st.markdown('<div class="section-header">Current Status</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-intro">Latest recorded thickness and pass/fail status per collector shoe.</div>', unsafe_allow_html=True)
@@ -1142,7 +1171,7 @@ def show():
     # ══════════════════════════════════════════════════════════
     # TAB 2 — TRENDS & ANALYSIS
     # ══════════════════════════════════════════════════════════
-    with tab2:
+    if tab2:
 
         # ── Thickness Degradation ──────────────────────────────
         st.markdown('<div class="section-header">Thickness Degradation Over Time</div>', unsafe_allow_html=True)
@@ -1333,7 +1362,7 @@ def show():
     # ══════════════════════════════════════════════════════════
     # TAB 3 — INSPECTION RECORDS
     # ══════════════════════════════════════════════════════════
-    with tab3:
+    if tab3:
         # ── Correlation records ────────────────────────────────
         st.markdown('<div class="section-header">Correlation Records</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-intro">Physical vs visual (YOLO) comparison records from each PM inspection. Use filters to isolate disagreements or failures for review.</div>', unsafe_allow_html=True)
@@ -1399,9 +1428,10 @@ def show():
                 "retired":       "Retired — removed from service",
             }
             CONDITION_OPTIONS = {
-                "new":     "new — Never installed, straight from storage",
-                "old":     "old — Previously used, has visible wear",
-                "unknown": "unknown — Condition not yet assessed",
+                "new":    "new — Never installed, straight from storage",
+                "in_use": "in_use — Currently in service",
+                "old":    "old — Previously used, has visible wear",
+                "unknown":"unknown — Condition not yet assessed",
             }
 
             for _, shoe in shoes_df.iterrows():
@@ -1424,10 +1454,12 @@ def show():
                     with col2:
                         if st.button("✏️ Edit", key=f"edit_btn_{shoe_id}", use_container_width=True):
                             st.session_state[f"edit_shoe_{shoe_id}"] = not st.session_state.get(f"edit_shoe_{shoe_id}", False)
+                            st.session_state["cs_active_tab"] = 2
                             st.rerun()
                     with col3:
                         if st.button("🗑️ Delete", key=f"del_btn_{shoe_id}", use_container_width=True):
                             st.session_state[f"del_shoe_{shoe_id}"] = True
+                            st.session_state["cs_active_tab"] = 2
                             st.rerun()
 
                     if st.session_state.get(f"edit_shoe_{shoe_id}", False):
@@ -1449,20 +1481,24 @@ def show():
                             s1, s2 = st.columns(2)
                             if s1.form_submit_button("💾 Save Changes", type="primary"):
                                 try:
-                                    supabase.table("collector_shoes").update({
-                                        "condition":             new_condition,
-                                        "baseline_thickness_mm": new_baseline,
-                                        "rotation_status":       new_rot,
-                                        "notes":                 new_notes.strip() or None,
-                                    }).eq("shoe_id", shoe_id).execute()
+                                    # Use RPC to avoid + being URL-encoded to %2B in shoe_id
+                                    supabase.rpc("update_collector_shoe", {
+                                        "p_shoe_id":        shoe_id,
+                                        "p_condition":      new_condition,
+                                        "p_baseline":       new_baseline,
+                                        "p_rotation_status": new_rot,
+                                        "p_notes":          new_notes.strip() or None,
+                                    }).execute()
                                     st.session_state.pop(f"edit_shoe_{shoe_id}", None)
                                     st.success(f"✅ {shoe_id} updated!")
                                     load_shoes.clear()
+                                    st.session_state["cs_active_tab"] = 2
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Update failed: {e}")
                             if s2.form_submit_button("Cancel"):
                                 st.session_state.pop(f"edit_shoe_{shoe_id}", None)
+                                st.session_state["cs_active_tab"] = 2
                                 st.rerun()
 
                     if st.session_state.get(f"del_shoe_{shoe_id}", False):
@@ -1471,70 +1507,21 @@ def show():
                         with d1:
                             if st.button("✅ Yes, Delete", key=f"del_confirm_{shoe_id}", type="primary"):
                                 try:
-                                    supabase.table("collector_shoes").delete().eq("shoe_id", shoe_id).execute()
+                                    # Use raw SQL via rpc to avoid + being URL-encoded to %2B
+                                    result = supabase.rpc(
+                                        "delete_collector_shoe",
+                                        {"p_shoe_id": shoe_id}
+                                    ).execute()
                                     st.session_state.pop(f"del_shoe_{shoe_id}", None)
-                                    st.success(f"🗑️ {shoe_id} deleted.")
                                     load_shoes.clear()
+                                    st.session_state["cs_active_tab"] = 2
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Delete failed: {e}")
                         with d2:
                             if st.button("❌ Cancel", key=f"del_cancel_{shoe_id}"):
                                 st.session_state.pop(f"del_shoe_{shoe_id}", None)
+                                st.session_state["cs_active_tab"] = 2
                                 st.rerun()
         else:
-            st.info("📭 No shoes registered yet. Register a shoe in the ⚙️ Manage Shoes tab.")
-
-    # ══════════════════════════════════════════════════════════
-    # TAB 4 — MANAGE SHOES
-    # ══════════════════════════════════════════════════════════
-    with tab4:
-        # ── Register new shoe ──────────────────────────────────
-        st.markdown('<div class="section-header">Register New Collector Shoe</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-intro">Register a new collector shoe when it is installed on an LRV. All fields are required. Shoe ID is auto-generated from the LRV number and position.</div>', unsafe_allow_html=True)
-
-        reg_expanded = st.session_state.get("reg_expander_open", False)
-        with st.expander("➕ Open Registration Form", expanded=reg_expanded):
-            _show_registration_form(supabase)
-
-        st.divider()
-
-        # ── Update Rotation Status ─────────────────────────────
-        st.markdown('<div class="section-header">Update Rotation Status</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-intro">Update a shoe\'s rotation status when a maintenance action has been performed.</div>', unsafe_allow_html=True)
-
-        all_shoes = shoes_df["shoe_id"].tolist() if not shoes_df.empty else []
-        if not all_shoes:
-            st.info("📭 No shoes registered yet. Register a shoe above first.")
-        else:
-            ROTATION_STATUS_OPTIONS = {
-                "in_service":    "In Service — wear < 3mm (rainy) / < 4mm (dry), actively monitored",
-                "not_rotated":   "Not Rotated — wear ≥ 3mm (rainy) / ≥ 4mm (dry), rotation pending",
-                "rotated_once":  "Rotated Once — rotation performed, second side in use",
-                "rotated_twice": "Rotated Twice — both sides worn, pending replacement",
-                "retired":       "Retired — removed from service",
-            }
-            u1, u2 = st.columns(2)
-            update_shoe = u1.selectbox("Select Shoe", all_shoes, key="update_shoe_select")
-            current     = shoes_df[shoes_df["shoe_id"] == update_shoe]
-            current_status = current["rotation_status"].values[0] if not current.empty and "rotation_status" in current.columns else "in_service"
-            rs_display = list(ROTATION_STATUS_OPTIONS.values())
-            rs_keys    = list(ROTATION_STATUS_OPTIONS.keys())
-            current_idx = rs_keys.index(current_status) if current_status in rs_keys else 0
-            new_status_display = u2.selectbox("New Status", rs_display, index=current_idx, key="update_status_select")
-            new_status = rs_keys[rs_display.index(new_status_display)]
-            st.info(f"Current: **{ROTATION_STATUS_OPTIONS.get(current_status, current_status)}**")
-            if st.button("Update Status", type="primary", key="update_rotation_btn"):
-                if new_status == current_status:
-                    st.warning("Status is already set to this value.")
-                else:
-                    try:
-                        supabase.table("collector_shoes") \
-                            .update({"rotation_status": new_status}) \
-                            .eq("shoe_id", update_shoe) \
-                            .execute()
-                        st.success(f"✅ **{update_shoe}** updated to: {ROTATION_STATUS_OPTIONS[new_status]}")
-                        load_shoes.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Update failed: {e}")
+            st.info("📭 No shoes registered yet. Register a shoe via the Camera Station.")
