@@ -344,11 +344,15 @@ def _get_physics_panel(defect, confidence):
 
 # ── Validation helpers ─────────────────────────────────────────
 def _needs_review(defect, confidence):
-    """Returns True if detection needs human review based on per-defect threshold."""
+    """Returns True if detection needs human review based on per-defect threshold.
+    Scuff marks are deprioritised — they never enter the review queue regardless of confidence,
+    as they are expected from rail contact and do not require human verification.
+    """
     if confidence <= 0:
         return False
-    threshold = SCUFF_MARKS_THRESHOLD if defect == "scuff marks" else CONFIDENCE_THRESHOLD
-    return confidence < threshold
+    if defect == "scuff marks":
+        return False  # deprioritised — recorded but never flagged for review
+    return confidence < CONFIDENCE_THRESHOLD
 
 
 def _validate_asset_id(supabase, asset_id):
@@ -1083,8 +1087,7 @@ def _tab_recent(supabase):
         timestamp    = _to_sgt(first.get("detected_at", ""))
 
         any_needs_review = any(
-            r.get("confidence", 0) > 0 and
-            r.get("confidence", 0) < (SCUFF_MARKS_THRESHOLD if r.get("defect_type") == "scuff marks" else CONFIDENCE_THRESHOLD)
+            _needs_review(r.get("defect_type", ""), r.get("confidence", 0))
             for r in recs
         )
         all_reviewed = all(r.get("reviewed", False) for r in recs)
@@ -1098,7 +1101,7 @@ def _tab_recent(supabase):
                 for r in recs:
                     defect       = r.get("defect_type", "none")
                     conf         = r.get("confidence", 0)
-                    needs_review = conf > 0 and conf < (SCUFF_MARKS_THRESHOLD if defect == "scuff marks" else CONFIDENCE_THRESHOLD)
+                    needs_review = _needs_review(defect, conf)
                     status       = get_status_label(needs_review, defect, conf)
                     st.markdown(f"{DEFECT_EMOJI.get(defect, '🔍')} {status}")
             with col2:
@@ -1892,6 +1895,8 @@ def _tab_export(supabase):
 
             if rec.get("reviewed"):
                 status = "Reviewed"
+            elif defect == "scuff marks":
+                status = "Recorded (no review required)"
             elif conf < CONFIDENCE_THRESHOLD:
                 status = f"Flagged (<{CONFIDENCE_THRESHOLD*100:.0f}%)"
             else:
