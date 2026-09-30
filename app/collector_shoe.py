@@ -1564,6 +1564,15 @@ def _show_last_inspected_summary(supabase):
         unsafe_allow_html=True,
     )
     try:
+        # Get only currently registered shoe IDs
+        registered = (
+            supabase.table("collector_shoes")
+            .select("shoe_id")
+            .execute()
+            .data
+        )
+        registered_ids = {r["shoe_id"] for r in registered} if registered else set()
+
         # inspection_sessions has asset_id (= shoe_id) and created_at
         rows = (
             supabase.table("inspection_sessions")
@@ -1574,6 +1583,12 @@ def _show_last_inspected_summary(supabase):
         )
         if not rows:
             st.info("No inspection records found yet.")
+            return
+
+        # Filter to registered shoes only — exclude deleted ones
+        rows = [r for r in rows if r["asset_id"] in registered_ids]
+        if not rows:
+            st.info("No inspection records found for registered shoes.")
             return
 
         df = pd.DataFrame(rows)
