@@ -1564,10 +1564,11 @@ def _show_last_inspected_summary(supabase):
         unsafe_allow_html=True,
     )
     try:
+        # inspection_sessions has asset_id (= shoe_id) and created_at
         rows = (
-            supabase.table("defect_records")
-            .select("shoe_id, captured_at")
-            .order("captured_at", desc=True)
+            supabase.table("inspection_sessions")
+            .select("asset_id, created_at")
+            .order("created_at", desc=True)
             .execute()
             .data
         )
@@ -1576,19 +1577,19 @@ def _show_last_inspected_summary(supabase):
             return
 
         df = pd.DataFrame(rows)
-        df["captured_at"] = pd.to_datetime(df["captured_at"], utc=True)
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
 
-        # Keep only the most recent record per shoe
+        # Keep only the most recent session per shoe
         latest = (
-            df.sort_values("captured_at", ascending=False)
-            .groupby("shoe_id", as_index=False)
+            df.sort_values("created_at", ascending=False)
+            .groupby("asset_id", as_index=False)
             .first()
         )
 
         now = pd.Timestamp.now(tz="UTC")
-        latest["days_ago"] = (now - latest["captured_at"]).dt.days
-        latest["last_inspected"] = latest["captured_at"].dt.strftime("%d %b %Y  %H:%M")
-        latest = latest.sort_values("shoe_id")
+        latest["days_ago"] = (now - latest["created_at"]).dt.days
+        latest["last_inspected"] = latest["created_at"].dt.strftime("%d %b %Y  %H:%M")
+        latest = latest.sort_values("asset_id")
 
         cols = st.columns(4)
         for idx, row in latest.reset_index(drop=True).iterrows():
@@ -1607,7 +1608,7 @@ def _show_last_inspected_summary(supabase):
                     f"""<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;
                         padding:14px 12px;margin-bottom:10px;text-align:center;">
                         <div style="font-size:13px;font-weight:700;color:#1E3A5F;margin-bottom:6px;">
-                            {row['shoe_id']}
+                            {row['asset_id']}
                         </div>
                         <div style="display:inline-block;background:{badge_color};color:white;
                             border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600;
@@ -1632,9 +1633,10 @@ def _show_defect_breakdown_per_shoe(supabase):
         unsafe_allow_html=True,
     )
     try:
+        # Join defect_records → inspection_sessions to get asset_id (shoe_id)
         rows = (
             supabase.table("defect_records")
-            .select("shoe_id, defect_type")
+            .select("defect_type, inspection_sessions(asset_id)")
             .neq("defect_type", "none")
             .execute()
             .data
@@ -1643,7 +1645,19 @@ def _show_defect_breakdown_per_shoe(supabase):
             st.info("No defect records found yet.")
             return
 
-        df = pd.DataFrame(rows)
+        # Flatten the nested join
+        flat = []
+        for r in rows:
+            sess = r.get("inspection_sessions") or {}
+            asset_id = sess.get("asset_id")
+            if asset_id:
+                flat.append({"shoe_id": asset_id, "defect_type": r["defect_type"]})
+
+        if not flat:
+            st.info("No defect records linked to shoes yet.")
+            return
+
+        df = pd.DataFrame(flat)
         pivot = (
             df.groupby(["shoe_id", "defect_type"])
             .size()
@@ -1720,9 +1734,11 @@ def _show_defect_breakdown_per_shoe(supabase):
 # ──────────────────────────────────────────────────────────────────────────────
 def _show_recent_sessions_log(supabase):
     try:
+        # inspection_sessions PK is "id"; shoe identifier is "asset_id";
+        # technician is "technician_name"; no explicit "status" column assumed
         rows = (
             supabase.table("inspection_sessions")
-            .select("session_id, shoe_id, inspector_name, created_at, status")
+            .select("id, asset_id, technician_name, created_at")
             .order("created_at", desc=True)
             .limit(20)
             .execute()
@@ -1735,7 +1751,7 @@ def _show_recent_sessions_log(supabase):
         sessions_df = pd.DataFrame(rows)
         sessions_df["created_at"] = pd.to_datetime(sessions_df["created_at"], utc=True)
 
-        # Pull defect counts per session from defect_records
+        # Pull defect counts per session_id from defect_records
         defect_rows = (
             supabase.table("defect_records")
             .select("session_id, defect_type")
@@ -1750,31 +1766,24 @@ def _show_recent_sessions_log(supabase):
                 if sid:
                     defect_counts[sid] = defect_counts.get(sid, 0) + 1
 
-        sessions_df["defects_found"] = sessions_df["session_id"].map(
+        sessions_df["defects_found"] = sessions_df["id"].map(
             lambda s: defect_counts.get(s, 0)
         )
 
         # Render as a clean table
-        display_cols = ["shoe_id", "inspector_name", "created_at", "status", "defects_found"]
-        display_df = sessions_df[display_cols].copy()
-        display_df.columns = ["Shoe ID", "Inspector", "Date & Time", "Status", "Defects Found"]
+        display_df = sessions_df[["asset_id", "technician_name", "created_at", "defects_found"]].copy()
+        display_df.columns = ["Shoe ID", "Inspector", "Date & Time", "Defects Found"]
         display_df["Date & Time"] = display_df["Date & Time"].dt.strftime("%d %b %Y  %H:%M")
-
-        def _highlight_defects(val):
-            if isinstance(val, int) and val > 0:
-                return "color:#DC2626;font-weight:600;"
-            return ""
 
         st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Shoe ID":        st.column_config.TextColumn("Shoe ID", width="medium"),
-                "Inspector":      st.column_config.TextColumn("Inspector", width="medium"),
-                "Date & Time":    st.column_config.TextColumn("Date & Time", width="medium"),
-                "Status":         st.column_config.TextColumn("Status", width="small"),
-                "Defects Found":  st.column_config.NumberColumn("Defects Found", width="small"),
+                "Shoe ID":       st.column_config.TextColumn("Shoe ID", width="medium"),
+                "Inspector":     st.column_config.TextColumn("Inspector", width="medium"),
+                "Date & Time":   st.column_config.TextColumn("Date & Time", width="medium"),
+                "Defects Found": st.column_config.NumberColumn("Defects Found", width="small"),
             },
         )
         st.caption(f"Showing last {len(display_df)} sessions · most recent first")
