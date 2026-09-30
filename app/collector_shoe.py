@@ -191,7 +191,6 @@ PF_EMOJI   = {"pass":  "✅", "fail":     "❌"}
 
 
 # ── Data loaders ───────────────────────────────────────────────
-@st.cache_data(ttl=30)
 @st.cache_data(ttl=60)
 def load_correlation(_sb):
     try:
@@ -785,7 +784,6 @@ def _show_confidence_progression(supabase):
                             f"**{asset}** — 📊 Stable trend ({change:+.1f}% over {n} inspections). "
                             f"No significant change in defect visibility. Continue normal inspection schedule."
                         )
-    _inject_css()
 
 
 def _show_defect_heatmap(supabase):
