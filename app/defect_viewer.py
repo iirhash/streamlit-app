@@ -1219,137 +1219,6 @@ def _tab_recent(supabase):
             st.rerun()
 
 
-def _tab_new_detection(supabase):
-    """📷 Manual Upload — IC backup when DJI camera is unavailable"""
-
-    # ── Context banner ─────────────────────────────────────────
-    st.info(
-        "📋 **When to use this tab:**\n\n"
-        "Use this as a **backup** when the DJI wired or wireless camera station "
-        "is unavailable. ICs can take a photo using their phone and upload it here "
-        "for YOLO detection and record saving.\n\n"
-        "For best results: photograph the collector shoe surface front-on with even "
-        "lighting, no glare, and the shoe filling most of the frame."
-    )
-
-    # ── LRV data ───────────────────────────────────────────────
-    LRV_MODELS = {
-        "Test / Training Vehicle":  [0],
-        "Non-Modified C810":        [2,3,6,8,11,14,16,17,19,20,24,29,32,37,38,39,40,41],
-        "Modified C810":            [4,5,7,9,10,12,15,18,22,25,27,28,30,33,35,36],
-        "New C810A":                list(range(42, 58)),
-        "C810D":                    list(range(58, 70)),
-    }
-    CAB_ENDS  = ["A", "B"]
-    POSITIONS = {"A": [1, 2], "B": [3, 4]}
-
-    st.markdown("**Asset ID**")
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        lrv_model = st.selectbox("LRV Model", list(LRV_MODELS.keys()), key="mu_model", label_visibility="collapsed")
-    with c2:
-        lrv_nums  = [f"LRV{n:02d}" for n in LRV_MODELS.get(lrv_model, [])]
-        lrv_num   = st.selectbox("LRV Number", lrv_nums, key="mu_num", label_visibility="collapsed")
-    with c3:
-        cab_end   = st.selectbox("Cab End", CAB_ENDS, key="mu_cab", label_visibility="collapsed")
-    with c4:
-        pos_opts  = POSITIONS.get(cab_end, [1, 2])
-        position  = st.selectbox("Position", pos_opts, key="mu_pos", label_visibility="collapsed")
-    with c5:
-        side      = st.selectbox("Side", ["Upper (+)", "Lower (-)"], key="mu_side", label_visibility="collapsed")
-
-    side_char = "+" if "Upper" in side else "-"
-    asset_id  = f"CS-{lrv_num}-{side_char}{cab_end}{position}"
-    st.caption(f"Asset ID: **{asset_id}**")
-
-    # ── Shoe info ───────────────────────────────────────────────
-    if asset_id:
-        is_valid, error_msg = _validate_asset_id(supabase, asset_id)
-        if not is_valid:
-            st.error(error_msg)
-        elif asset_id.upper().startswith("CS-"):
-            try:
-                result = supabase.table("collector_shoes") \
-                    .select("shoe_id, condition, lrv_asset_id, rotation_status") \
-                    .eq("shoe_id", asset_id.upper()).execute()
-                if result.data:
-                    shoe = result.data[0]
-                    st.success(
-                        f"✅ **{shoe['shoe_id']}** — "
-                        f"LRV: {shoe['lrv_asset_id']} | "
-                        f"Condition: {shoe['condition']} | "
-                        f"Rotation: {shoe['rotation_status'].replace('_', ' ')}"
-                    )
-            except:
-                pass
-
-        has_dup, dup_msg = _check_duplicate(supabase, asset_id)
-        if has_dup:
-            st.warning(dup_msg)
-
-    st.markdown("---")
-
-    # ── File uploader ───────────────────────────────────────────
-    st.markdown("**Upload Inspection Photo**")
-    st.caption("Accepted formats: JPG, JPEG, PNG, BMP, WEBP · Max 200MB")
-    uploaded = st.file_uploader(
-        "Upload inspection photo",
-        type=["jpg", "jpeg", "png", "bmp", "webp"],
-        label_visibility="collapsed"
-    )
-
-    # Preview — only show thumbnail to save egress
-    if uploaded:
-        st.image(uploaded, caption="Preview", width=320)
-
-    # ── Empty state ─────────────────────────────────────────────
-    if not uploaded:
-        st.markdown(
-            """<div style="background:#F8FAFC;border:2px dashed #CBD5E1;border-radius:12px;
-            padding:32px;text-align:center;color:#64748B;margin:16px 0;">
-            <div style="font-size:36px;">📸</div>
-            <div style="font-size:15px;font-weight:600;margin:8px 0;">No photo uploaded yet</div>
-            <div style="font-size:13px;">Upload a photo of the collector shoe surface above to run YOLO detection</div>
-            </div>""",
-            unsafe_allow_html=True
-        )
-        return
-
-    # ── Run detection ───────────────────────────────────────────
-    if st.button("🚀 Run Detection & Save", type="primary", use_container_width=True):
-        is_valid, error_msg = _validate_asset_id(supabase, asset_id)
-        if not is_valid:
-            st.error(error_msg)
-            return
-
-        has_dup, dup_msg = _check_duplicate(supabase, asset_id)
-        if has_dup:
-            if not st.session_state.get(f"confirm_dup_{asset_id}", False):
-                st.warning(f"{dup_msg}")
-                st.session_state[f"confirm_dup_{asset_id}"] = True
-                return
-            else:
-                st.session_state[f"confirm_dup_{asset_id}"] = False
-
-        with st.spinner("Running YOLO detection..."):
-            try:
-                result = _run_detection_pipeline(supabase, asset_id, uploaded)
-                if result.get("needs_review"):
-                    st.warning(
-                        f"⚠️ Detection saved but flagged for review — "
-                        f"confidence {result.get('confidence', 0):.0%} is below {CONFIDENCE_THRESHOLD:.0%}."
-                    )
-                else:
-                    st.success(
-                        f"✅ **{result.get('defect', 'none')}** detected at "
-                        f"**{result.get('confidence', 0):.0%}** confidence."
-                    )
-                load_defect_records.clear()
-            except Exception as e:
-                st.error(f"Something went wrong: {e}")
-
-
 def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar, status_text):
     """
     Generates a Word (.docx) inspection report grouped by Asset ID then session.
@@ -2436,9 +2305,8 @@ def show():
         st.divider()
 
     # ── Main tabs ───────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "✅ Reviewed",
-        "📷 Manual Upload",
         "🖼️ Recent Detections",
         "📥 Export / Report",
         "🔄 Retrain",
@@ -2448,13 +2316,10 @@ def show():
         _tab_reviewed(supabase)
 
     with tab2:
-        _tab_new_detection(supabase)
-
-    with tab3:
         _tab_recent(supabase)
 
-    with tab4:
+    with tab3:
         _tab_export(supabase)
 
-    with tab5:
+    with tab4:
         _tab_retrain(supabase)
