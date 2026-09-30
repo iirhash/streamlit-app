@@ -1248,7 +1248,7 @@ def _show_inspection_comparison(supabase):
                         st.caption(f"Angle {i+1} of {len(captures)}")
                     img_url = _signed_url_ic(cap["path"])
                     if img_url:
-                        st.image(img_url, use_container_width=True)
+                        st.image(img_url, width="stretch")
                     else:
                         st.warning("Image not available.")
                     # List all defects detected in this image
@@ -1562,8 +1562,6 @@ def show():
         st.success(st.session_state.pop("reg_success_msg"))
 
     supabase  = get_supabase()
-    corr_df   = load_correlation(supabase)
-    degrad_df = load_degradation(supabase)
     shoes_df  = load_shoes(supabase)
     fleet     = load_fleet_status(supabase)
     daily_sel = load_daily_selection(supabase)
@@ -1617,76 +1615,6 @@ def show():
         # ── Fleet Status ───────────────────────────────────────
         _show_fleet_status(fleet, shoes_df, daily_sel, supabase)
 
-        # ── Shoe status cards ──────────────────────────────────
-        st.markdown('<div class="section-header">Current Status</div>', unsafe_allow_html=True)
-
-        # Apply LRV filter if a badge was clicked
-        _lrv_filter = st.session_state.get("fleet_filter_lrv", None)
-        if _lrv_filter:
-            st.markdown(
-                f'<div class="section-intro">Showing shoes for <b>{_lrv_filter}</b> only. '
-                f'Click <b>✕ Clear</b> on the badge above to show all.</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown('<div class="section-intro">Latest recorded thickness and pass/fail status per collector shoe.</div>', unsafe_allow_html=True)
-        st.caption("ℹ️ Filter shows shoe cards for the selected LRV. Physical measurements are required to display thickness cards.")
-
-        shoe_ids = corr_df["shoe_id"].unique().tolist() if "shoe_id" in corr_df.columns and not corr_df.empty else []
-
-        # Restrict to today's selected LRVs
-        if daily_sel and daily_sel.get("lrv_ids"):
-            selected_lrvs = daily_sel["lrv_ids"]
-            allowed_shoes = []
-            for lrv in selected_lrvs:
-                if lrv in fleet:
-                    allowed_shoes.extend(fleet[lrv]["shoes"])
-            shoe_ids = [s for s in shoe_ids if s in allowed_shoes]
-
-        # Further filter by badge click
-        if _lrv_filter and fleet and _lrv_filter in fleet:
-            filtered_shoes = fleet[_lrv_filter]["shoes"]
-            shoe_ids = [s for s in shoe_ids if s in filtered_shoes]
-
-        if shoe_ids:
-            card_cols = st.columns(min(len(shoe_ids), 4))
-            for idx, shoe_id in enumerate(shoe_ids):
-                with card_cols[idx % 4]:
-                    _shoe_card(shoe_id, corr_df, shoes_df)
-        else:
-            st.markdown(
-                """<div style="background:#FFF7ED;border:1px solid #F59E0B;border-radius:12px;
-                padding:18px 22px;margin-bottom:16px;">
-                <div style="font-size:15px;font-weight:700;color:#92400E;margin-bottom:6px;">
-                📋 Physical Measurement Data — Awaiting Input
-                </div>
-                <div style="font-size:13px;color:#78350F;line-height:1.6;">
-                Shoe status cards will appear once physical depth gauge measurements are entered.<br>
-                Register shoes via the Camera Station, then submit measurements during PM inspections.
-                </div></div>""",
-                unsafe_allow_html=True
-            )
-
-        # ── Programme summary metrics ──────────────────────────
-        st.markdown('<div class="section-header">Programme Summary</div>', unsafe_allow_html=True)
-
-        if not corr_df.empty:
-            total        = len(corr_df)
-            pass_count   = len(corr_df[corr_df["pass_fail"] == "pass"])   if "pass_fail"           in corr_df.columns else 0
-            fail_count   = len(corr_df[corr_df["pass_fail"] == "fail"])   if "pass_fail"           in corr_df.columns else 0
-            agree_count  = len(corr_df[corr_df["correlation_status"] == "agree"])    if "correlation_status" in corr_df.columns else 0
-            dis_count    = len(corr_df[corr_df["correlation_status"] == "disagree"]) if "correlation_status" in corr_df.columns else 0
-            pass_rate    = round(pass_count  / total * 100, 1) if total > 0 else 0
-            agree_rate   = round(agree_count / total * 100, 1) if total > 0 else 0
-
-            m1, m2, m3, m4, m5 = st.columns(5)
-            with m1: _metric("Total",    total,           "inspections")
-            with m2: _metric("Pass",     f"{pass_rate}%", f"{pass_count} sessions",  PASS_COLOR)
-            with m3: _metric("Fail",     f"{100-pass_rate:.1f}%", f"{fail_count} sessions", FAIL_COLOR)
-            with m4: _metric("Agree",    f"{agree_rate}%", f"{agree_count} sessions", PASS_COLOR)
-            with m5: _metric("Disagree", dis_count,        "needs review",            FAIL_COLOR if dis_count > 0 else SLATE)
-        else:
-            st.info("📭 No correlation records yet. Summary metrics will appear once physical measurements are submitted.")
 
     # ══════════════════════════════════════════════════════════
     # TAB 2 — TRENDS & ANALYSIS
@@ -1722,58 +1650,6 @@ def show():
     # TAB 3 — INSPECTION RECORDS
     # ══════════════════════════════════════════════════════════
     if tab3:
-        # ── Correlation records ────────────────────────────────
-        st.markdown('<div class="section-header">Correlation Records</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-intro">Physical vs visual (YOLO) comparison records from each PM inspection. Use filters to isolate disagreements or failures for review.</div>', unsafe_allow_html=True)
-
-        if not corr_df.empty:
-            f1, f2, f3, f4 = st.columns(4)
-            shoe_filter = f1.selectbox("Shoe",          ["All"] + list(corr_df["shoe_id"].unique()) if "shoe_id" in corr_df.columns else ["All"])
-            corr_filter = f2.selectbox("Correlation",   ["All", "agree", "disagree"])
-            pf_filter   = f3.selectbox("Pass / Fail",   ["All", "pass", "fail"])
-            sev_filter  = f4.selectbox("Severity",      ["All", "none", "minor", "moderate", "severe"])
-
-            filtered = corr_df.copy()
-            if shoe_filter != "All" and "shoe_id"            in filtered.columns: filtered = filtered[filtered["shoe_id"] == shoe_filter]
-            if corr_filter != "All" and "correlation_status" in filtered.columns: filtered = filtered[filtered["correlation_status"] == corr_filter]
-            if pf_filter   != "All" and "pass_fail"          in filtered.columns: filtered = filtered[filtered["pass_fail"] == pf_filter]
-            if sev_filter  != "All" and "physical_severity"  in filtered.columns: filtered = filtered[filtered["physical_severity"] == sev_filter]
-
-            st.caption(f"Showing {len(filtered)} of {len(corr_df)} records")
-
-            display_cols = [c for c in [
-                "inspection_date","shoe_id","shoe_condition","thickness_mm",
-                "physical_severity","pass_fail","visual_severity","visual_pass_fail",
-                "yolo_confidence","correlation_status","technician_name"
-            ] if c in filtered.columns]
-
-            display_df = filtered[display_cols].copy()
-            if "thickness_mm"       in display_df.columns: display_df["thickness_mm"]       = display_df["thickness_mm"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "—")
-            if "physical_severity"  in display_df.columns: display_df["physical_severity"]  = display_df["physical_severity"].apply(lambda x: f"{SEVERITY_EMOJI.get(x,'')} {x}" if x else x)
-            if "visual_severity"    in display_df.columns: display_df["visual_severity"]    = display_df["visual_severity"].apply(lambda x: f"{SEVERITY_EMOJI.get(x,'')} {x}" if x else x)
-            if "pass_fail"          in display_df.columns: display_df["pass_fail"]          = display_df["pass_fail"].apply(lambda x: f"{PF_EMOJI.get(x,'')} {x.upper()}" if x else x)
-            if "visual_pass_fail"   in display_df.columns: display_df["visual_pass_fail"]   = display_df["visual_pass_fail"].apply(lambda x: f"{PF_EMOJI.get(x,'')} {x.upper()}" if x else x)
-            if "correlation_status" in display_df.columns: display_df["correlation_status"] = display_df["correlation_status"].apply(lambda x: f"{CORR_EMOJI.get(x,'')} {x}" if x else x)
-            if "yolo_confidence"    in display_df.columns: display_df["yolo_confidence"]    = display_df["yolo_confidence"].apply(lambda x: f"{x:.0%}" if pd.notna(x) else "—")
-
-            def highlight(row):
-                if "❌" in str(row.get("correlation_status", "")): return ["background-color:#FFF0F0"] * len(row)
-                if "❌" in str(row.get("pass_fail", "")): return ["background-color:#FFF5F0"] * len(row)
-                return ["background-color:#F0FDF4"] * len(row)
-
-            st.dataframe(display_df.style.apply(highlight, axis=1), height=400, hide_index=True)
-
-            csv_data = filtered.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "⬇️ Download CSV", data=csv_data,
-                file_name=f"collector_shoe_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-            )
-        else:
-            st.info("📭 No correlation records yet. Records will appear once physical measurements are submitted.")
-
-        st.divider()
-
         # ── Registered shoes ───────────────────────────────────
         st.markdown('<div class="section-header">Registered Shoes</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-intro">All collector shoes currently registered in the system. Edit or delete records here.</div>', unsafe_allow_html=True)
