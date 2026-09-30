@@ -1841,7 +1841,7 @@ def _tab_export(supabase):
         from datetime import date
         date_from     = f1.date_input("From Date", value=date(2026, 1, 1))
         date_to       = f2.date_input("To Date",   value=date.today())
-        defect_filter = f3.selectbox("Defect Type", ["All", "wear", "crack", "corrosion", "arcing", "none"])
+        defect_filter = f3.selectbox("Defect Type", ["All", "wear", "crack", "scuff marks", "corrosion", "none"])
         asset_filter  = f4.text_input("Asset ID (optional)", placeholder="e.g. CS-LRV00-+A1")
 
     # ── Fetch records ──────────────────────────────────────────
