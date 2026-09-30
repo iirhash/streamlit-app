@@ -259,6 +259,318 @@ def load_confidence_progression(_sb, days=90):
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=60)
+def load_fleet_status(_sb):
+    """
+    Returns a dict keyed by lrv_asset_id with:
+      - shoes: list of shoe_ids
+      - last_inspected: most recent detected_at or None
+      - worst_defect: defect_type with highest confidence (non-none)
+      - worst_confidence: that confidence value
+      - status: 'critical' | 'needs_attention' | 'operational' | 'unknown'
+    """
+    try:
+        # All registered shoes
+        shoes_r = _sb.table("collector_shoes") \
+            .select("shoe_id, lrv_asset_id").execute()
+        if not shoes_r.data:
+            return {}
+
+        # Latest defect records per asset (non-none)
+        det_r = _sb.table("defect_records") \
+            .select("confidence, defect_type, detected_at, inspection_sessions(asset_id)") \
+            .not_.is_("confidence", "null") \
+            .gt("confidence", 0) \
+            .execute()
+
+        # Build detection lookup: asset_id → list of (defect_type, confidence, detected_at)
+        detections = {}
+        if det_r.data:
+            for row in det_r.data:
+                sess = row.get("inspection_sessions")
+                asset = sess.get("asset_id") if isinstance(sess, dict) else None
+                if not asset:
+                    continue
+                detections.setdefault(asset, []).append({
+                    "defect_type": row["defect_type"],
+                    "confidence":  row["confidence"] * 100,
+                    "detected_at": row["detected_at"],
+                })
+
+        # Group shoes by LRV
+        lrv_map = {}
+        for row in shoes_r.data:
+            lrv = row["lrv_asset_id"]
+            shoe = row["shoe_id"]
+            lrv_map.setdefault(lrv, []).append(shoe)
+
+        fleet = {}
+        CRITICAL_DEFECTS    = {"wear", "crack"}
+        ATTENTION_DEFECTS   = {"pore", "scratch", "scuff marks", "oxidation", "water mark"}
+
+        for lrv, shoe_ids in lrv_map.items():
+            all_dets = []
+            for shoe in shoe_ids:
+                all_dets.extend(detections.get(shoe, []))
+
+            if not all_dets:
+                fleet[lrv] = {
+                    "shoes": shoe_ids,
+                    "last_inspected": None,
+                    "worst_defect": None,
+                    "worst_confidence": None,
+                    "status": "unknown",
+                }
+                continue
+
+            # Most recent inspection
+            last = max(all_dets, key=lambda x: x["detected_at"])["detected_at"]
+
+            # Only non-none defects for severity
+            real_dets = [d for d in all_dets if d["defect_type"] != "none"]
+
+            if not real_dets:
+                fleet[lrv] = {
+                    "shoes": shoe_ids,
+                    "last_inspected": last,
+                    "worst_defect": "none",
+                    "worst_confidence": None,
+                    "status": "operational",
+                }
+                continue
+
+            # Worst = highest confidence non-none defect
+            worst = max(real_dets, key=lambda x: x["confidence"])
+
+            if worst["defect_type"] in CRITICAL_DEFECTS and worst["confidence"] >= 85:
+                status = "critical"
+            elif worst["confidence"] >= 70:
+                status = "needs_attention"
+            else:
+                status = "operational"
+
+            fleet[lrv] = {
+                "shoes": shoe_ids,
+                "last_inspected": last,
+                "worst_defect": worst["defect_type"],
+                "worst_confidence": round(worst["confidence"], 1),
+                "status": status,
+            }
+
+        return fleet
+    except Exception:
+        return {}
+
+
+def load_daily_selection(_sb):
+    """Load today's LRV selection from daily_lrv_selection table."""
+    from datetime import date
+    try:
+        r = _sb.table("daily_lrv_selection") \
+            .select("*") \
+            .eq("date", date.today().isoformat()) \
+            .limit(1).execute()
+        return r.data[0] if r.data else None
+    except Exception:
+        return None
+
+
+def save_daily_selection(_sb, lrv_ids, set_by, is_override=False):
+    """Insert or update today's LRV selection."""
+    from datetime import date, datetime, timezone
+    today = date.today().isoformat()
+    payload = {
+        "date":    today,
+        "lrv_ids": lrv_ids,
+        "set_by":  set_by,
+        "set_at":  datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        if is_override:
+            _sb.table("daily_lrv_selection").update(payload).eq("date", today).execute()
+        else:
+            _sb.table("daily_lrv_selection").insert(payload).execute()
+        return True
+    except Exception as e:
+        return str(e)
+
+
+def _show_lrv_selector(supabase, fleet, existing, is_override=False):
+    """
+    Renders the LRV selector prompt.
+    existing: the current daily_lrv_selection row (or None)
+    is_override: True when management is overriding an existing selection
+    """
+    st.markdown(
+        '<div class="section-header">🚃 Set Today\'s LRV Schedule</div>',
+        unsafe_allow_html=True,
+    )
+    if is_override:
+        st.info("✏️ You are overriding today's LRV schedule as management.")
+
+    # Name input
+    default_name = existing["set_by"] if existing and is_override else ""
+    tech_name = st.text_input(
+        "Your name",
+        value=default_name,
+        placeholder="e.g. Rizwan",
+        key="lrv_sel_name",
+    )
+
+    # LRV multiselect — all registered LRVs
+    all_lrvs = sorted(fleet.keys()) if fleet else []
+    default_sel = existing["lrv_ids"] if existing and is_override else []
+
+    st.markdown("**Select LRVs in service today (max 8):**")
+    selected = st.multiselect(
+        "LRVs",
+        options=all_lrvs,
+        default=[l for l in default_sel if l in all_lrvs],
+        key="lrv_sel_multiselect",
+        label_visibility="collapsed",
+    )
+
+    if len(selected) > 8:
+        st.warning("⚠️ Maximum 8 LRVs allowed. Please deselect some.")
+
+    btn_label = "✏️ Override Schedule" if is_override else "✅ Confirm Schedule"
+    if st.button(btn_label, type="primary", disabled=(not tech_name.strip() or len(selected) == 0 or len(selected) > 8)):
+        result = save_daily_selection(
+            supabase, selected, tech_name.strip(), is_override=is_override
+        )
+        if result is True:
+            st.session_state.pop("lrv_sel_override", None)
+            load_daily_selection.clear() if hasattr(load_daily_selection, "clear") else None
+            st.session_state["cs_active_tab"] = 0
+            st.rerun()
+        else:
+            st.error(f"Could not save selection: {result}")
+
+
+def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
+    """Renders the Fleet Status badge row + summary table above shoe cards."""
+
+    STATUS_CONF = {
+        "critical":        ("🔴", "Critical",        "#FEE2E2", "#DC2626", "#B91C1C"),
+        "needs_attention": ("🟡", "Needs Attention",  "#FEF9C3", "#CA8A04", "#92400E"),
+        "operational":     ("🟢", "Operational",      "#DCFCE7", "#16A34A", "#14532D"),
+        "unknown":         ("⚪", "Unknown",           "#F1F5F9", "#64748B", "#334155"),
+    }
+
+    # ── Header + lock/override ─────────────────────────────────
+    role = st.session_state.get("role", None)
+    h1, h2 = st.columns([5, 1])
+    with h1:
+        if daily_sel:
+            try:
+                from datetime import datetime, timezone
+                dt = datetime.fromisoformat(daily_sel["set_at"].replace("Z", "+00:00"))
+                local_time = dt.strftime("%d %b %Y %H:%M")
+            except Exception:
+                local_time = daily_sel.get("set_at", "")[:16]
+            st.markdown(
+                f'<div class="section-header">🚃 Fleet Status &nbsp; '
+                f'<span style="font-size:12px;font-weight:400;color:#64748B;">'
+                f'🔒 Set by <b>{daily_sel["set_by"]}</b> · {local_time}</span></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="section-header">🚃 Fleet Status</div>', unsafe_allow_html=True)
+    with h2:
+        if daily_sel and role in ("management", "supervisor"):
+            if st.button("✏️ Override", key="fleet_override_btn"):
+                st.session_state["lrv_sel_override"] = True
+                st.session_state["cs_active_tab"] = 0
+                st.rerun()
+
+    # ── If no selection today → show selector prompt ───────────
+    if not daily_sel or st.session_state.get("lrv_sel_override", False):
+        _show_lrv_selector(supabase, fleet, daily_sel,
+                           is_override=bool(st.session_state.get("lrv_sel_override")))
+        return
+
+    if not fleet:
+        st.info("📭 No LRVs registered yet.")
+        return
+
+    # Filter fleet to only today's selected LRVs
+    selected_lrvs = daily_sel.get("lrv_ids") or []
+    fleet = {k: v for k, v in fleet.items() if k in selected_lrvs}
+
+    # Sort: critical first, then needs_attention, operational, unknown
+    order = {"critical": 0, "needs_attention": 1, "operational": 2, "unknown": 3}
+    sorted_lrvs = sorted(fleet.keys(), key=lambda x: order.get(fleet[x]["status"], 9))
+
+    # Active filter from session state
+    active_filter = st.session_state.get("fleet_filter_lrv", None)
+
+    # Badge row
+    cols = st.columns(min(len(sorted_lrvs), 6))
+    for i, lrv in enumerate(sorted_lrvs):
+        info = fleet[lrv]
+        emoji, label, bg, border, text = STATUS_CONF[info["status"]]
+        is_active = active_filter == lrv
+        badge_bg     = border if is_active else bg
+        badge_text   = "white" if is_active else text
+        badge_border = border
+
+        with cols[i % 6]:
+            st.markdown(
+                f"""<div style="background:{badge_bg};border:2px solid {badge_border};
+                border-radius:10px;padding:8px 10px;text-align:center;margin-bottom:6px;">
+                <div style="font-size:18px;">{emoji}</div>
+                <div style="font-size:11px;font-weight:700;color:{badge_text};">{lrv}</div>
+                <div style="font-size:10px;color:{badge_text};opacity:0.85;">{label}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            btn_label = "✕ Clear" if is_active else "Filter"
+            if st.button(btn_label, key=f"fleet_badge_{lrv}", use_container_width=True):
+                if is_active:
+                    st.session_state.pop("fleet_filter_lrv", None)
+                else:
+                    st.session_state["fleet_filter_lrv"] = lrv
+                st.session_state["cs_active_tab"] = 0
+                st.rerun()
+
+    # Fleet summary table
+    with st.expander("📋 Fleet Summary Table", expanded=True):
+        rows = []
+        for lrv in sorted_lrvs:
+            info = fleet[lrv]
+            emoji, label, _, _, _ = STATUS_CONF[info["status"]]
+            last = "Never"
+            if info["last_inspected"]:
+                try:
+                    from datetime import datetime, timezone
+                    dt = datetime.fromisoformat(info["last_inspected"].replace("Z", "+00:00"))
+                    diff = datetime.now(timezone.utc) - dt
+                    days = diff.days
+                    last = "Today" if days == 0 else f"{days}d ago"
+                except Exception:
+                    last = info["last_inspected"][:10]
+
+            defect_str = "—" if not info["worst_defect"] or info["worst_defect"] == "none" else \
+                f"{info['worst_defect']} ({info['worst_confidence']}%)"
+
+            rows.append({
+                "LRV":              lrv,
+                "Shoes Registered": len(info["shoes"]),
+                "Last Inspection":  last,
+                "Worst Defect":     defect_str,
+                "Status":           f"{emoji} {label}",
+            })
+
+        import pandas as _pd
+        st.dataframe(
+            _pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.divider()
+
+
 # ── CSS ────────────────────────────────────────────────────────
 def _inject_css():
     st.markdown("""
@@ -1076,6 +1388,8 @@ def show():
     corr_df   = load_correlation(supabase)
     degrad_df = load_degradation(supabase)
     shoes_df  = load_shoes(supabase)
+    fleet     = load_fleet_status(supabase)
+    daily_sel = load_daily_selection(supabase)
 
     # ── Weather banner — always above all tabs ─────────────────
     active_threshold = _show_weather_banner(supabase)
@@ -1123,11 +1437,39 @@ def show():
     # TAB 1 — OVERVIEW
     # ══════════════════════════════════════════════════════════
     if tab1:
+        # ── Fleet Status ───────────────────────────────────────
+        _show_fleet_status(fleet, shoes_df, daily_sel, supabase)
+
         # ── Shoe status cards ──────────────────────────────────
         st.markdown('<div class="section-header">Current Status</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-intro">Latest recorded thickness and pass/fail status per collector shoe.</div>', unsafe_allow_html=True)
+
+        # Apply LRV filter if a badge was clicked
+        _lrv_filter = st.session_state.get("fleet_filter_lrv", None)
+        if _lrv_filter:
+            st.markdown(
+                f'<div class="section-intro">Showing shoes for <b>{_lrv_filter}</b> only. '
+                f'Click <b>✕ Clear</b> on the badge above to show all.</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="section-intro">Latest recorded thickness and pass/fail status per collector shoe.</div>', unsafe_allow_html=True)
 
         shoe_ids = corr_df["shoe_id"].unique().tolist() if "shoe_id" in corr_df.columns and not corr_df.empty else []
+
+        # Restrict to today's selected LRVs
+        if daily_sel and daily_sel.get("lrv_ids"):
+            selected_lrvs = daily_sel["lrv_ids"]
+            allowed_shoes = []
+            for lrv in selected_lrvs:
+                if lrv in fleet:
+                    allowed_shoes.extend(fleet[lrv]["shoes"])
+            shoe_ids = [s for s in shoe_ids if s in allowed_shoes]
+
+        # Further filter by badge click
+        if _lrv_filter and fleet and _lrv_filter in fleet:
+            filtered_shoes = fleet[_lrv_filter]["shoes"]
+            shoe_ids = [s for s in shoe_ids if s in filtered_shoes]
+
         if shoe_ids:
             card_cols = st.columns(min(len(shoe_ids), 4))
             for idx, shoe_id in enumerate(shoe_ids):
@@ -1142,7 +1484,7 @@ def show():
                 </div>
                 <div style="font-size:13px;color:#78350F;line-height:1.6;">
                 Shoe status cards will appear once physical depth gauge measurements are entered.<br>
-                Register shoes in the <b>⚙️ Manage Shoes</b> tab, then submit measurements during PM inspections.
+                Register shoes via the Camera Station, then submit measurements during PM inspections.
                 </div></div>""",
                 unsafe_allow_html=True
             )
