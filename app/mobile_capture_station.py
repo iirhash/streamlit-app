@@ -265,48 +265,170 @@ def show():
         asset_id = _build_asset_id()
         st.caption(f"Asset ID: **{asset_id}**")
 
-        # Validate shoe
-        try:
-            result = supabase.table("collector_shoes") \
-                .select("shoe_id, condition, lrv_asset_id, rotation_status") \
-                .eq("shoe_id", asset_id.upper()).execute()
-            if result.data:
-                shoe = result.data[0]
-                st.success(
-                    f"✅ **{shoe['shoe_id']}** — "
-                    f"LRV: {shoe['lrv_asset_id']} | "
-                    f"Condition: {shoe['condition']} | "
-                    f"Rotation: {shoe['rotation_status'].replace('_', ' ')}"
-                )
-            else:
-                st.warning(f"⚠️ {asset_id} not registered. Please register on the Collector Shoe page first.")
-        except:
-            pass
+        # ── Shoe registration status check ─────────────────────
+        if asset_id:
+            # Check Supabase for this shoe
+            shoe_rec = None
+            try:
+                r = supabase.table("collector_shoes") \
+                    .select("shoe_id, rotation_status, condition") \
+                    .eq("shoe_id", asset_id) \
+                    .execute()
+                shoe_rec = r.data[0] if r.data else None
+            except:
+                pass
 
-        if st.button("🚀 Start Inspection Session", type="primary", use_container_width=True):
-            if not tech_name.strip():
-                st.error("Please enter your technician name.")
+            start_disabled = False
+
+            if shoe_rec is None:
+                # ── CASE A: Not registered ──────────────────────
+                st.markdown(
+                    """<div style="background:#FFF7ED;border:1px solid #F59E0B;
+                    border-radius:8px;padding:10px 14px;margin:8px 0;">
+                    <b>🆕 Shoe Not Registered</b><br>
+                    <span style="font-size:13px;color:#78350F;">
+                    This shoe has not been registered yet. Answer the questions below to register it before starting.
+                    </span></div>""",
+                    unsafe_allow_html=True
+                )
+                condition = st.radio(
+                    "Is the shoe at this position a new shoe or already in-use?",
+                    options=["🟢 New", "🔵 In-use"],
+                    key=f"reg_condition_{asset_id}",
+                    horizontal=True,
+                )
+                rotation_status = "in_service"
+                if "In-use" in condition:
+                    rotated = st.radio(
+                        "Has the shoe at this position been rotated before?",
+                        options=["No", "Yes"],
+                        key=f"reg_rotated_{asset_id}",
+                        horizontal=True,
+                    )
+                    rotation_status = "rotated_once" if rotated == "Yes" else "in_service"
+
             else:
-                try:
-                    session_resp = supabase.table("inspection_sessions").insert({
-                        "technician_name": tech_name.strip(),
-                        "employee_id":     "N/A",
-                        "asset_id":        asset_id,
-                        "status":          "submitted",
-                        "notes":           "Captured via Mobile Capture Station (phone camera) — 3-angle inspection",
-                    }).execute()
-                    if not session_resp.data:
-                        st.error("Could not create session. Check RLS policies.")
-                    else:
-                        st.session_state["mc_session_id"]  = session_resp.data[0]["id"]
-                        st.session_state["mc_tech_name"]   = tech_name.strip()
-                        st.session_state["mc_asset_id"]    = asset_id
-                        st.session_state["mc_capture_num"] = 1
-                        st.session_state["mc_results"]     = []
-                        st.session_state["mc_state"]       = "capturing"
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Session creation failed: {e}")
+                rot_status = shoe_rec.get("rotation_status", "in_service")
+                condition  = None
+                rotation_status = rot_status
+
+                if rot_status == "in_service":
+                    # ── CASE B ───────────────────────────────────
+                    st.markdown(
+                        """<div style="background:#F0FDF4;border:1px solid #0A8A72;
+                        border-radius:8px;padding:10px 14px;margin:8px 0;">
+                        <b>✅ Status: In Service</b><br>
+                        <span style="font-size:13px;color:#166534;">
+                        This shoe is registered and actively monitored. Proceed with inspection.
+                        </span></div>""",
+                        unsafe_allow_html=True
+                    )
+
+                elif rot_status == "not_rotated":
+                    # ── CASE C ───────────────────────────────────
+                    st.markdown(
+                        """<div style="background:#FFF7ED;border:1px solid #F59E0B;
+                        border-radius:8px;padding:10px 14px;margin:8px 0;">
+                        <b>🔄 Status: Pending Rotation</b><br>
+                        <span style="font-size:13px;color:#78350F;">
+                        This shoe has been flagged for rotation by a supervisor.
+                        </span></div>""",
+                        unsafe_allow_html=True
+                    )
+                    rotation_confirm = st.radio(
+                        "Has this shoe been rotated since it was last flagged?",
+                        options=["No, not yet", "Yes, just done"],
+                        key=f"rot_confirm_{asset_id}",
+                        horizontal=True,
+                    )
+                    if rotation_confirm == "Yes, just done":
+                        rotation_status = "rotated_once"
+
+                elif rot_status == "rotated_once":
+                    # ── CASE D ───────────────────────────────────
+                    st.markdown(
+                        """<div style="background:#F0FDF4;border:1px solid #0A8A72;
+                        border-radius:8px;padding:10px 14px;margin:8px 0;">
+                        <b>✅ Status: Rotated Once — second side in use</b><br>
+                        <span style="font-size:13px;color:#166534;">
+                        Shoe is on its second side. Proceed with inspection.
+                        </span></div>""",
+                        unsafe_allow_html=True
+                    )
+
+                elif rot_status == "retired":
+                    # ── CASE E ───────────────────────────────────
+                    st.markdown(
+                        """<div style="background:#FEE2E2;border:1px solid #EF4444;
+                        border-radius:8px;padding:10px 14px;margin:8px 0;">
+                        <b>🚫 This shoe has been retired.</b><br>
+                        <span style="font-size:13px;color:#991B1B;">
+                        This shoe is no longer in service. Do not inspect.
+                        Please check the position for a replacement shoe.
+                        </span></div>""",
+                        unsafe_allow_html=True
+                    )
+                    start_disabled = True
+
+            # ── Start Session button ────────────────────────────
+            if st.button("▶ Start Inspection", type="primary",
+                         disabled=start_disabled,
+                         use_container_width=True):
+                if not tech_name.strip():
+                    st.error("Please enter your technician name.")
+                else:
+                    # Handle registration / rotation update before starting
+                    if shoe_rec is None and condition is not None:
+                        # CASE A — register new shoe
+                        cond_clean = "new" if "New" in condition else "in_use"
+                        try:
+                            from datetime import date
+                            supabase.table("collector_shoes").insert({
+                                "shoe_id":               asset_id,
+                                "condition":             cond_clean,
+                                "lrv_asset_id":          asset_id.split("-")[1] if "-" in asset_id else asset_id,
+                                "baseline_thickness_mm": 16.0,
+                                "registered_at":         date.today().isoformat(),
+                                "rotation_status":       rotation_status,
+                                "notes":                 f"Registered at first inspection by {st.session_state.get('technician_name', tech_name.strip())}",
+                            }).execute()
+                        except Exception as e:
+                            if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
+                                st.error(f"Registration failed: {e}")
+                                st.stop()
+
+                    elif shoe_rec and shoe_rec.get("rotation_status") == "not_rotated" and rotation_status == "rotated_once":
+                        # CASE C — update rotation to rotated_once
+                        try:
+                            supabase.table("collector_shoes") \
+                                .update({"rotation_status": "rotated_once"}) \
+                                .eq("shoe_id", asset_id) \
+                                .execute()
+                        except Exception as e:
+                            st.error(f"Could not update rotation status: {e}")
+                            st.stop()
+
+                    # Create inspection session in Supabase
+                    try:
+                        session_resp = supabase.table("inspection_sessions").insert({
+                            "technician_name": tech_name.strip(),
+                            "employee_id":     "N/A",
+                            "asset_id":        asset_id,
+                            "status":          "submitted",
+                            "notes":           "Captured via Mobile Capture Station (phone camera) — 3-angle inspection",
+                        }).execute()
+                        if not session_resp.data:
+                            st.error("Could not create session. Check RLS policies.")
+                        else:
+                            st.session_state["mc_session_id"]  = session_resp.data[0]["id"]
+                            st.session_state["mc_tech_name"]   = tech_name.strip()
+                            st.session_state["mc_asset_id"]    = asset_id
+                            st.session_state["mc_capture_num"] = 1
+                            st.session_state["mc_results"]     = []
+                            st.session_state["mc_state"]       = "capturing"
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Session creation failed: {e}")
 
         if st.button("← Back to Tips", use_container_width=True):
             st.session_state["mc_state"] = "tips"
