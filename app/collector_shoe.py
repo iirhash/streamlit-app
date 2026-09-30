@@ -1588,7 +1588,11 @@ def _show_last_inspected_summary(supabase):
 
         now = pd.Timestamp.now(tz="UTC")
         latest["days_ago"] = (now - latest["created_at"]).dt.days
-        latest["last_inspected"] = latest["created_at"].dt.strftime("%d %b %Y  %H:%M")
+        latest["last_inspected"] = (
+            latest["created_at"]
+            .dt.tz_convert("Asia/Singapore")
+            .dt.strftime("%d %b %Y  %H:%M")
+        )
         latest = latest.sort_values("asset_id")
 
         cols = st.columns(4)
