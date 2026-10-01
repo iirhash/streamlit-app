@@ -5,7 +5,7 @@
 import os
 import streamlit as st
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # ── MUST BE FIRST ─────────────────────────────────────────────
 st.set_page_config(
@@ -96,7 +96,8 @@ with st.sidebar:
         st.session_state["current_page"] = page
 
     st.markdown("---")
-    st.markdown(f"🟢 **Live** — {datetime.now().strftime('%d %b %Y, %H:%M')}")
+    _SGT = timezone(timedelta(hours=8))
+    st.markdown(f"🟢 **Live** — {datetime.now(_SGT).strftime('%d %b %Y, %H:%M')} SGT")
     st.markdown("*Auto-refreshes every 5 mins*")
 
     # ── Bottom of sidebar ──────────────────────────────────────
