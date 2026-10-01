@@ -2143,20 +2143,27 @@ def show():
             try:
                 review_records = supabase_anon.table("defect_records") \
                     .select("*, inspection_sessions(asset_id, technician_name)") \
-                    .lt("confidence", CONFIDENCE_THRESHOLD) \
                     .gt("confidence", 0) \
                     .eq("reviewed", False) \
                     .order("detected_at", desc=True) \
                     .execute()
 
-                if not review_records.data:
+                # Filter per-defect threshold in Python (scuff marks threshold = 0.50,
+                # all others = 0.85) — avoids hardcoding CONFIDENCE_THRESHOLD in the
+                # DB query which incorrectly flags scuff marks between 0.50–0.85
+                filtered_review = [
+                    r for r in (review_records.data or [])
+                    if _needs_review(r.get("defect_type", ""), r.get("confidence", 0))
+                ]
+
+                if not filtered_review:
                     st.success("✅ No detections currently need IC review.")
                 else:
                     # Group by session_id
                     from collections import defaultdict
                     rev_sessions      = defaultdict(list)
                     rev_session_order = []
-                    for rec in review_records.data:
+                    for rec in filtered_review:
                         sid = rec.get("session_id")
                         if sid not in rev_sessions:
                             rev_session_order.append(sid)
