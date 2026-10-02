@@ -1685,28 +1685,37 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     )
 
     grid = (
-        '<div style="margin:0 152px;">'
+        '<div style="padding:0 152px;box-sizing:border-box;">'
         + img_wrap
         + '</div>'
     )
 
     card = (
         '<div style="background:#FFFFFF;border:1px solid #E2E8F0;border-radius:14px;'
-        'padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);">'
+        'padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);overflow:visible;">'
         + title + grid + rail_legend + '</div>'
     )
 
     auto_resize_js = (
         '<script>(function(){'
-        'function s(){window.parent.postMessage({type:"streamlit:setFrameHeight",'
-        'height:document.body.scrollHeight},"*");}'
+        'function s(){'
+        'var h=document.body.scrollHeight;'
+        'window.parent.postMessage({type:"streamlit:setFrameHeight",height:h},"*");}'
+        # Fire on load (after images settle) and on every resize (covers zoom)
         'window.addEventListener("load",function(){'
-        's();var imgs=document.images,p=imgs.length;'
-        'if(!p){s();return;}'
-        'for(var i=0;i<imgs.length;i++){'
-        'imgs[i].addEventListener("load",function(){p--;if(p<=0)s();});'
-        'imgs[i].addEventListener("error",function(){p--;if(p<=0)s();});}'
-        '});window.addEventListener("resize",s);})()</script>'
+        'setTimeout(s,100);'
+        'var imgs=document.images,p=imgs.length;'
+        'if(p){for(var i=0;i<p;i++){'
+        'imgs[i].addEventListener("load",function(){setTimeout(s,50);});'
+        'imgs[i].addEventListener("error",function(){setTimeout(s,50);});}'
+        '}else{s();}'
+        '});'
+        # ResizeObserver fires on zoom changes (devicePixelRatio changes body size)
+        'if(window.ResizeObserver){'
+        'new ResizeObserver(function(){s();}).observe(document.body);'
+        '}'
+        'window.addEventListener("resize",function(){setTimeout(s,50);});'
+        '})()</script>'
     )
 
     return (
