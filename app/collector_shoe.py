@@ -1696,34 +1696,44 @@ def _lrv_diagram_html(lrv_id, shoe_data):
         + title + grid + rail_legend + '</div>'
     )
 
-    auto_resize_js = (
+    # Scale JS: design canvas is 900px wide. On every resize, scale the inner
+    # wrapper so it always fills the iframe width exactly, then report the
+    # scaled height back to Streamlit. This makes the layout pixel-perfect at
+    # any browser zoom level.
+    scale_and_resize_js = (
         '<script>(function(){'
-        'function s(){'
-        'var h=document.body.scrollHeight;'
-        'window.parent.postMessage({type:"streamlit:setFrameHeight",height:h},"*");}'
-        # Fire on load (after images settle) and on every resize (covers zoom)
-        'window.addEventListener("load",function(){'
-        'setTimeout(s,100);'
-        'var imgs=document.images,p=imgs.length;'
-        'if(p){for(var i=0;i<p;i++){'
-        'imgs[i].addEventListener("load",function(){setTimeout(s,50);});'
-        'imgs[i].addEventListener("error",function(){setTimeout(s,50);});}'
-        '}else{s();}'
-        '});'
-        # ResizeObserver fires on zoom changes (devicePixelRatio changes body size)
-        'if(window.ResizeObserver){'
-        'new ResizeObserver(function(){s();}).observe(document.body);'
+        'var DESIGN_W=900;'
+        'var wrap=document.getElementById("diagram-wrap");'
+        'function fit(){'
+        'var aw=document.documentElement.clientWidth||document.body.clientWidth||DESIGN_W;'
+        'var sc=aw/DESIGN_W;'
+        'wrap.style.transform="scale("+sc+")";'
+        'wrap.style.transformOrigin="top left";'
+        'wrap.style.width=DESIGN_W+"px";'
+        'var scaledH=Math.ceil(wrap.offsetHeight*sc);'
+        'document.body.style.height=scaledH+"px";'
+        'window.parent.postMessage({type:"streamlit:setFrameHeight",height:scaledH},"*");'
         '}'
-        'window.addEventListener("resize",function(){setTimeout(s,50);});'
+        'window.addEventListener("load",function(){setTimeout(fit,50);});'
+        'window.addEventListener("resize",function(){setTimeout(fit,50);});'
+        'if(window.ResizeObserver){'
+        'new ResizeObserver(function(){setTimeout(fit,50);}).observe(document.documentElement);'
+        '}'
+        'setTimeout(fit,100);'
         '})()</script>'
     )
 
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<style>*{box-sizing:border-box;margin:0;padding:0;'
+        '<style>'
+        '*{box-sizing:border-box;margin:0;padding:0;'
         'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}'
-        'body{background:transparent;padding:0;}</style>'
-        '</head><body>' + card + auto_resize_js + '</body></html>'
+        'body{background:transparent;padding:0;overflow:hidden;}'
+        '#diagram-wrap{width:900px;transform-origin:top left;}'
+        '</style>'
+        '</head><body>'
+        '<div id="diagram-wrap">' + card + '</div>'
+        + scale_and_resize_js + '</body></html>'
     )
 
 
