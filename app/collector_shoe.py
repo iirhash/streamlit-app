@@ -2,6 +2,7 @@
 # ── Collector Shoe Wear Tracking — Redesigned ─────────────────
 
 import streamlit as st
+import streamlit.components.v1 as st_components
 import pandas as pd
 import plotly.express as px
 import os, sys
@@ -1736,13 +1737,20 @@ def _lrv_diagram_html(lrv_id, shoe_data):
         + '</div>'
     )
 
-    return (
+    card = (
         '<div style="background:#FFFFFF;border:1px solid #E2E8F0;border-radius:14px;'
-        'padding:12px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,0.07);">'
+        'padding:12px;margin-bottom:4px;box-shadow:0 2px 8px rgba(0,0,0,0.07);">'
         + title
         + inner
         + rail_legend
         + '</div>'
+    )
+    # Return a full self-contained HTML document for st_components.html()
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<style>*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}'
+        'body{background:transparent;padding:0;}</style>'
+        '</head><body>' + card + '</body></html>'
     )
 
 def _show_last_inspected_summary(supabase):
@@ -1843,7 +1851,9 @@ def _show_last_inspected_summary(supabase):
                     "last_inspected": info.get("last_inspected", ""),
                 }
 
-            st.markdown(_lrv_diagram_html(lrv_id, shoe_data), unsafe_allow_html=True)
+            # Use st_components.html() to avoid st.markdown() truncation on large base64 payloads
+            html_content = _lrv_diagram_html(lrv_id, shoe_data)
+            st_components.html(html_content, height=370, scrolling=False)
 
     except Exception as e:
         st.error(f"Could not load last inspected summary: {e}")
