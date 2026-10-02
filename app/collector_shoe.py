@@ -1633,10 +1633,12 @@ def _lrv_diagram_html(lrv_id, shoe_data):
 
     lbl = 'style="font-size:9px;font-weight:700;letter-spacing:1px;color:#64748B;text-transform:uppercase;margin-bottom:4px;"'
 
-    # Each card group is absolutely positioned at the line-end % of the image height.
-    # POS 1 / POS 3 bracket lines end at ~28% from top; POS 2 / POS 4 at ~72%.
+    # Each card group is absolutely positioned and vertically centred between
+    # the bracket line and the vehicle body edge.
+    # Top bracket line is at ~6.5%, vehicle body top is ~30% -> POS 1/3 midpoint ~18%
+    # Bottom bracket line is at ~90%, vehicle body bottom is ~70% -> POS 2/4 midpoint ~80%
     def _corner(pos_label, p1, p2, align):
-        pct = "28%" if pos_label in ("POS 1", "POS 3") else "72%"
+        pct = "18%" if pos_label in ("POS 1", "POS 3") else "80%"
         alg = "flex-start" if align == "left" else "flex-end"
         side = "left:0;" if align == "left" else "right:0;"
         return (
