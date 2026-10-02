@@ -1671,26 +1671,32 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     #   Pos2 bottom-left:  20.6%, 62.7%
     #   Pos3 top-right:    79.4%, 41.8%
     #   Pos4 bottom-right: 79.4%, 62.7%
-    # Solid connector lines from actual bogie/wheel centres to card edges
-    # Bogie % coords measured from image (751×311px):
-    #   Pos1 top-left:     20%, 27%   Pos3 top-right:    80%, 27%
-    #   Pos2 bottom-left:  20%, 73%   Pos4 bottom-right: 80%, 73%
+    # Bracket-style connector lines (like the reference image):
+    #   vertical spine from top bogie to bottom bogie, then horizontal arms out to card edges
+    # Bogie % coords (751×311px image):
+    #   Pos1 top-left: 20%, 27%   Pos2 bottom-left: 20%, 73%
+    #   Pos3 top-right: 80%, 27%  Pos4 bottom-right: 80%, 73%
     arrow_svg = (
         '<svg viewBox="0 0 100 100" preserveAspectRatio="none" '
         'xmlns="http://www.w3.org/2000/svg" '
         'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">'
-        # Pos1: top-left bogie → left edge upper
-        '<line x1="20" y1="27" x2="1" y2="27" '
-        'stroke="#475569" stroke-width="1.2"/>'
-        # Pos2: bottom-left bogie → left edge lower
-        '<line x1="20" y1="73" x2="1" y2="73" '
-        'stroke="#475569" stroke-width="1.2"/>'
-        # Pos3: top-right bogie → right edge upper
-        '<line x1="80" y1="27" x2="99" y2="27" '
-        'stroke="#475569" stroke-width="1.2"/>'
-        # Pos4: bottom-right bogie → right edge lower
-        '<line x1="80" y1="73" x2="99" y2="73" '
-        'stroke="#475569" stroke-width="1.2"/>'
+
+        # LEFT side bracket
+        # Vertical spine connecting Pos1 bogie to Pos2 bogie
+        '<line x1="20" y1="27" x2="20" y2="73" stroke="#475569" stroke-width="1.2"/>'
+        # Top arm: Pos1 bogie → left edge
+        '<line x1="20" y1="27" x2="1" y2="27" stroke="#475569" stroke-width="1.2"/>'
+        # Bottom arm: Pos2 bogie → left edge
+        '<line x1="20" y1="73" x2="1" y2="73" stroke="#475569" stroke-width="1.2"/>'
+
+        # RIGHT side bracket
+        # Vertical spine connecting Pos3 bogie to Pos4 bogie
+        '<line x1="80" y1="27" x2="80" y2="73" stroke="#475569" stroke-width="1.2"/>'
+        # Top arm: Pos3 bogie → right edge
+        '<line x1="80" y1="27" x2="99" y2="27" stroke="#475569" stroke-width="1.2"/>'
+        # Bottom arm: Pos4 bogie → right edge
+        '<line x1="80" y1="73" x2="99" y2="73" stroke="#475569" stroke-width="1.2"/>'
+
         '</svg>'
     )
 
