@@ -1633,10 +1633,20 @@ def _lrv_diagram_html(lrv_id, shoe_data):
 
     lbl = 'style="font-size:9px;font-weight:700;letter-spacing:1px;color:#64748B;text-transform:uppercase;margin-bottom:4px;"'
 
-    tl = '<div style="display:flex;flex-direction:column;align-items:flex-start;"><div ' + lbl + '>POS 1</div>' + _pair("+A1","-A1") + '</div>'
-    bl = '<div style="display:flex;flex-direction:column;align-items:flex-start;"><div ' + lbl + '>POS 2</div>' + _pair("+A2","-A2") + '</div>'
-    tr = '<div style="display:flex;flex-direction:column;align-items:flex-end;"><div '   + lbl + '>POS 3</div>' + _pair("+B3","-B3") + '</div>'
-    br = '<div style="display:flex;flex-direction:column;align-items:flex-end;"><div '   + lbl + '>POS 4</div>' + _pair("+B4","-B4") + '</div>'
+    # Each card group is absolutely positioned at the line-end % of the image height.
+    # POS 1 / POS 3 bracket lines end at ~28% from top; POS 2 / POS 4 at ~72%.
+    def _corner(pos_label, p1, p2, align):
+        pct = "28%" if pos_label in ("POS 1", "POS 3") else "72%"
+        alg = "flex-start" if align == "left" else "flex-end"
+        side = "left:0;" if align == "left" else "right:0;"
+        return (
+            '<div style="position:absolute;top:' + pct + ';transform:translateY(-50%);'
+            + side +
+            'display:flex;flex-direction:column;align-items:' + alg + ';">'
+            '<div ' + lbl + '>' + pos_label + '</div>'
+            + _pair(p1, p2) +
+            '</div>'
+        )
 
     lrv_badge = (
         '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);'
@@ -1657,16 +1667,27 @@ def _lrv_diagram_html(lrv_id, shoe_data):
         '<span>&#43; Upper rail</span><span>&#8722; Lower rail</span></div>'
     )
 
-    grid = (
-        '<div style="display:grid;grid-template-columns:140px 1fr 140px;align-items:stretch;">'
-        '<div style="display:flex;flex-direction:column;justify-content:space-between;padding:4px 0;">'
-        + tl + bl + '</div>'
+    # Image container is position:relative so the side card wrappers can use
+    # position:absolute to sit exactly at the line-end vertical positions.
+    img_wrap = (
         '<div style="position:relative;">'
-        '<img src="' + _IMG + '" alt="LRV ' + lrv_id + '" style="width:100%;display:block;"/>'
-        + lrv_badge + '</div>'
-        '<div style="display:flex;flex-direction:column;justify-content:space-between;padding:4px 0;">'
-        + tr + br + '</div>'
-        '</div>'
+        + '<img src="' + _IMG + '" alt="LRV ' + lrv_id + '" style="width:100%;display:block;"/>'
+        + lrv_badge
+        + '<div style="position:absolute;top:0;left:-148px;width:144px;height:100%;">'
+        + _corner("POS 1", "+A1", "-A1", "left")
+        + _corner("POS 2", "+A2", "-A2", "left")
+        + '</div>'
+        + '<div style="position:absolute;top:0;right:-148px;width:144px;height:100%;">'
+        + _corner("POS 3", "+B3", "-B3", "right")
+        + _corner("POS 4", "+B4", "-B4", "right")
+        + '</div>'
+        + '</div>'
+    )
+
+    grid = (
+        '<div style="margin:0 152px;">'
+        + img_wrap
+        + '</div>'
     )
 
     card = (
