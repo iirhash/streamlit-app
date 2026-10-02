@@ -1633,17 +1633,19 @@ def _lrv_diagram_html(lrv_id, shoe_data):
 
     lbl = 'style="font-size:9px;font-weight:700;letter-spacing:1px;color:#64748B;text-transform:uppercase;margin-bottom:4px;"'
 
-    # Each card group is absolutely positioned and vertically centred between
-    # the bracket line and the vehicle body edge.
-    # Top bracket line is at ~6.5%, vehicle body top is ~30% -> POS 1/3 midpoint ~18%
-    # Bottom bracket line is at ~90%, vehicle body bottom is ~70% -> POS 2/4 midpoint ~80%
+    # POS 1/3: anchor at top bracket line (~6.5%) -> align top of pair there
+    # POS 2/4: anchor at bottom bracket line (~90%) -> align bottom of pair there
     def _corner(pos_label, p1, p2, align):
-        pct = "18%" if pos_label in ("POS 1", "POS 3") else "80%"
+        if pos_label in ("POS 1", "POS 3"):
+            # top-align the pair starting at the top bracket line
+            pos_style = "top:3%;transform:none;"
+        else:
+            # bottom-align the pair ending at the bottom bracket line
+            pos_style = "bottom:3%;transform:none;"
         alg = "flex-start" if align == "left" else "flex-end"
         side = "left:0;" if align == "left" else "right:0;"
         return (
-            '<div style="position:absolute;top:' + pct + ';transform:translateY(-50%);'
-            + side +
+            '<div style="position:absolute;' + pos_style + side +
             'display:flex;flex-direction:column;align-items:' + alg + ';">'
             '<div ' + lbl + '>' + pos_label + '</div>'
             + _pair(p1, p2) +
@@ -1672,8 +1674,8 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     # Image container is position:relative so the side card wrappers can use
     # position:absolute to sit exactly at the line-end vertical positions.
     img_wrap = (
-        '<div style="position:relative;">'
-        + '<img src="' + _IMG + '" alt="LRV ' + lrv_id + '" style="width:100%;display:block;"/>'
+        '<div style="position:relative;min-height:340px;">'
+        + '<img src="' + _IMG + '" alt="LRV ' + lrv_id + '" style="width:100%;display:block;min-height:340px;object-fit:contain;"/>'
         + lrv_badge
         + '<div style="position:absolute;top:0;left:-148px;width:144px;height:100%;">'
         + _corner("POS 1", "+A1", "-A1", "left")
