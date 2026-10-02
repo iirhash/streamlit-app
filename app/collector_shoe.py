@@ -1746,11 +1746,35 @@ def _lrv_diagram_html(lrv_id, shoe_data):
         + '</div>'
     )
     # Return a full self-contained HTML document for st_components.html()
+    # The JS snippet sends the rendered scrollHeight back to Streamlit so the
+    # iframe resizes itself — works regardless of the browser zoom level.
+    auto_resize_js = (
+        '<script>'
+        '(function(){'
+        '  function sendHeight(){'
+        '    var h=document.body.scrollHeight;'
+        '    window.parent.postMessage({type:"streamlit:setFrameHeight",height:h},"*");'
+        '  }'
+        '  window.addEventListener("load",function(){'
+        '    sendHeight();'
+        '    // re-check after images finish loading'
+        '    var imgs=document.images;'
+        '    var pending=imgs.length;'
+        '    if(pending===0){sendHeight();return;}'
+        '    for(var i=0;i<imgs.length;i++){'
+        '      imgs[i].addEventListener("load",function(){pending--;if(pending<=0)sendHeight();});'
+        '      imgs[i].addEventListener("error",function(){pending--;if(pending<=0)sendHeight();});'
+        '    }'
+        '  });'
+        '  window.addEventListener("resize",sendHeight);'
+        '})()'
+        '</script>'
+    )
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<style>*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}'
         'body{background:transparent;padding:0;}</style>'
-        '</head><body>' + card + '</body></html>'
+        '</head><body>' + card + auto_resize_js + '</body></html>'
     )
 
 def _show_last_inspected_summary(supabase):
@@ -1853,7 +1877,8 @@ def _show_last_inspected_summary(supabase):
 
             # Use st_components.html() to avoid st.markdown() truncation on large base64 payloads
             html_content = _lrv_diagram_html(lrv_id, shoe_data)
-            st_components.html(html_content, height=370, scrolling=False)
+            # Initial height is a fallback; the JS inside resizes to actual content height
+            st_components.html(html_content, height=500, scrolling=False)
 
     except Exception as e:
         st.error(f"Could not load last inspected summary: {e}")
