@@ -5,7 +5,7 @@
 import os
 import streamlit as st
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 # ── MUST BE FIRST ─────────────────────────────────────────────
 st.set_page_config(
@@ -53,7 +53,7 @@ with st.sidebar:
     _all_nav = [
         "📖 Visual Inspection Manual",
         "🔍 Defect Viewer",
-        "👟 Collector Shoe",
+        "👟 Shoe Health Monitor",
         "🚀 Launch Camera Stations",
     ]
 
@@ -96,8 +96,7 @@ with st.sidebar:
         st.session_state["current_page"] = page
 
     st.markdown("---")
-    _SGT = timezone(timedelta(hours=8))
-    st.markdown(f"🟢 **Live** — {datetime.now(_SGT).strftime('%d %b %Y, %H:%M')} SGT")
+    st.markdown(f"🟢 **Live** — {datetime.now().strftime('%d %b %Y, %H:%M')}")
     st.markdown("*Auto-refreshes every 5 mins*")
 
     # ── Bottom of sidebar ──────────────────────────────────────
@@ -542,7 +541,7 @@ elif page == "🔍 Defect Viewer":
     from app import defect_viewer
     defect_viewer.show()
 
-elif page == "👟 Collector Shoe":
+elif page == "👟 Shoe Health Monitor":
     _require_manual()
     from app import collector_shoe
     collector_shoe.show()
