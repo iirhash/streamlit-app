@@ -169,7 +169,7 @@ Before capturing any images, ensure the following:
 | 📷 Camera | DJI Action 3 powered on, SD card inserted, lens clean |
 | 🚆 LRV | Stationary and secured before going trackside |
 | 🦺 PPE | High-visibility vest, safety boots, and gloves worn |
-| 📋 Shoe ID | Confirm collector shoe position label (e.g. CS-LRV00-1U) matches the physical shoe |
+| 📋 Shoe ID | Confirm collector shoe position label (e.g. CS-LRV00-+A1) matches the physical shoe |
     """)
 
     st.markdown("---")
@@ -177,18 +177,22 @@ Before capturing any images, ensure the following:
     # ── Section 2: Collector Shoe Positions ───────────────────
     st.markdown("## 🚃 2. Collector Shoe Positions")
     st.markdown("""
-Each LRV bogie has **4 collector shoes**, labelled by position and side:
+Each LRV has **8 collector shoes** across 2 bogies (A End and B End), labelled using the convention `CS-LRV[XX]-[+/-][A/B][position]`:
 
-| Label | Position | Side |
-|-------|----------|------|
-| **CS-LRV00-1U** | Position 1 | Upper |
-| **CS-LRV00-1L** | Position 1 | Lower |
-| **CS-LRV00-2U** | Position 2 | Upper |
-| **CS-LRV00-2L** | Position 2 | Lower |
-| **CS-LRV00-3U** | Position 3 | Upper |
-| **CS-LRV00-3L** | Position 3 | Lower |
-| **CS-LRV00-4U** | Position 4 | Upper |
-| **CS-LRV00-4L** | Position 4 | Lower |
+- **`+`** = Upper rail &nbsp;|&nbsp; **`-`** = Lower rail
+- **`A`** = A End bogie (left) &nbsp;|&nbsp; **`B`** = B End bogie (right)
+- **Position 1 & 2** = A End &nbsp;|&nbsp; **Position 3 & 4** = B End
+
+| Label | Bogie | Position | Rail |
+|-------|-------|----------|------|
+| **CS-LRV00-+A1** | A End | Position 1 | Upper (+) |
+| **CS-LRV00--A1** | A End | Position 1 | Lower (−) |
+| **CS-LRV00-+A2** | A End | Position 2 | Upper (+) |
+| **CS-LRV00--A2** | A End | Position 2 | Lower (−) |
+| **CS-LRV00-+B3** | B End | Position 3 | Upper (+) |
+| **CS-LRV00--B3** | B End | Position 3 | Lower (−) |
+| **CS-LRV00-+B4** | B End | Position 4 | Upper (+) |
+| **CS-LRV00--B4** | B End | Position 4 | Lower (−) |
 
 > 📌 **Always confirm the shoe label before capturing.** Mislabelling will corrupt the maintenance history.
     """)
