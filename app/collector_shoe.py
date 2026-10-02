@@ -1692,34 +1692,35 @@ def _lrv_diagram_html(lrv_id, shoe_data):
 
     card = (
         '<div style="background:#FFFFFF;border:1px solid #E2E8F0;border-radius:14px;'
-        'padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);overflow:visible;">'
+        'padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);'
+        'overflow:visible;contain:none;">'
         + title + grid + rail_legend + '</div>'
     )
 
-    # Scale JS: design canvas is 900px wide. On every resize, scale the inner
-    # wrapper so it always fills the iframe width exactly, then report the
-    # scaled height back to Streamlit. This makes the layout pixel-perfect at
-    # any browser zoom level.
+    # Scale JS: design canvas is 900px wide. Scales to fit iframe, reports height.
     scale_and_resize_js = (
         '<script>(function(){'
         'var DESIGN_W=900;'
         'var wrap=document.getElementById("diagram-wrap");'
         'function fit(){'
+        # Reset transform first to measure true unscaled height
+        'wrap.style.transform="none";'
+        'wrap.style.width=DESIGN_W+"px";'
+        'var unscaledH=wrap.scrollHeight;'
         'var aw=document.documentElement.clientWidth||document.body.clientWidth||DESIGN_W;'
-        'var sc=aw/DESIGN_W;'
+        'var sc=Math.min(1,aw/DESIGN_W);'  # never scale UP, only DOWN
         'wrap.style.transform="scale("+sc+")";'
         'wrap.style.transformOrigin="top left";'
-        'wrap.style.width=DESIGN_W+"px";'
-        'var scaledH=Math.ceil(wrap.offsetHeight*sc);'
+        'var scaledH=Math.ceil(unscaledH*sc);'
         'document.body.style.height=scaledH+"px";'
         'window.parent.postMessage({type:"streamlit:setFrameHeight",height:scaledH},"*");'
         '}'
-        'window.addEventListener("load",function(){setTimeout(fit,50);});'
+        'window.addEventListener("load",function(){setTimeout(fit,100);});'
         'window.addEventListener("resize",function(){setTimeout(fit,50);});'
         'if(window.ResizeObserver){'
         'new ResizeObserver(function(){setTimeout(fit,50);}).observe(document.documentElement);'
         '}'
-        'setTimeout(fit,100);'
+        'setTimeout(fit,150);'
         '})()</script>'
     )
 
@@ -1728,8 +1729,11 @@ def _lrv_diagram_html(lrv_id, shoe_data):
         '<style>'
         '*{box-sizing:border-box;margin:0;padding:0;'
         'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}'
-        'body{background:transparent;padding:0;overflow:hidden;}'
-        '#diagram-wrap{width:900px;transform-origin:top left;}'
+        'html,body{background:transparent;padding:0;margin:0;overflow:visible;}'
+        '#diagram-wrap{'
+        'width:900px;transform-origin:top left;'
+        'overflow:visible;'
+        '}'
         '</style>'
         '</head><body>'
         '<div id="diagram-wrap">' + card + '</div>'
