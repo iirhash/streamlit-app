@@ -88,7 +88,7 @@ def fetch_nea_weather():
 
 def _show_weather_banner(supabase):
     """
-    Displays a weather banner at the top of the Collector Shoe page showing:
+    Displays a weather banner at the top of the Shoe Health Monitor page showing:
     - Current NEA weather for Sengkang/Punggol
     - Active rotation threshold (auto-toggled based on weather)
     - Manual override toggle for supervisors/management
@@ -1813,7 +1813,7 @@ def _show_recent_sessions_log(supabase):
 
 def show():
     _inject_css()
-    st.markdown("## 👟 Collector Shoe Wear Tracking")
+    st.markdown("## 👟 Shoe Health Monitor")
 
     # ── Persistent success message after registration ──────────
     if "reg_success_msg" in st.session_state:
