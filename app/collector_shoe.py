@@ -1556,24 +1556,250 @@ def _show_detection_frequency(supabase):
 # ──────────────────────────────────────────────────────────────────────────────
 # Last Inspected Summary (Tab 1)
 # ──────────────────────────────────────────────────────────────────────────────
+def _shoe_card_html(shoe_id, days, last_inspected):
+    """
+    Returns the HTML snippet for one mini shoe card used in the LRV diagram.
+    days=-1 means no inspection data (grey/unregistered).
+    """
+    if days == -1:
+        badge_color = "#94A3B8"
+        badge_text  = "Not inspected"
+        border_color = "#CBD5E1"
+        bg_color     = "#F8FAFC"
+        text_color   = "#94A3B8"
+        ts_html = ""
+    else:
+        if days == 0:
+            badge_color, badge_text = "#16A34A", "Today"
+        elif days <= 3:
+            badge_color, badge_text = "#2563EB", f"{days}d ago"
+        elif days <= 7:
+            badge_color, badge_text = "#D97706", f"{days}d ago"
+        else:
+            badge_color, badge_text = "#DC2626", f"{days}d ago ⚠️"
+        border_color = badge_color
+        bg_color     = "#FFFFFF"
+        text_color   = "#1E293B"
+        ts_html = f'<div style="font-size:9px;color:#64748B;margin-top:3px;line-height:1.2;">{last_inspected}</div>'
+
+    # Short position label (e.g. "+A1")
+    try:
+        pos_label = shoe_id.split("-")[-1]   # "+A1", "-B3", etc.
+    except Exception:
+        pos_label = shoe_id
+
+    return f"""<div style="
+        background:{bg_color};
+        border:2px solid {border_color};
+        border-radius:8px;
+        padding:6px 8px;
+        text-align:center;
+        min-width:90px;
+        box-shadow:0 2px 6px rgba(0,0,0,0.10);
+        font-family:system-ui,sans-serif;
+    ">
+        <div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#64748B;text-transform:uppercase;">{pos_label}</div>
+        <div style="font-size:10px;font-weight:600;color:{text_color};margin:2px 0;word-break:break-all;">{shoe_id}</div>
+        <div style="display:inline-block;background:{badge_color};color:white;
+            border-radius:10px;padding:2px 7px;font-size:9px;font-weight:700;">{badge_text}</div>
+        {ts_html}
+    </div>"""
+
+
+def _lrv_diagram_html(lrv_id, shoe_data):
+    """
+    Builds the full HTML block for one LRV's top-down diagram.
+
+    shoe_data: dict keyed by position suffix ("+A1", "-A1", etc.)
+               each value: {"shoe_id": str, "days": int, "last_inspected": str}
+               Missing positions get a "Not inspected" grey card.
+
+    Layout (top-down view, A End on left, B End on right):
+    ┌──────────────────────────────────────────────────────────┐
+    │  [+A1]  [+A2]          (vehicle body)       [+B3]  [+B4] │
+    │                 ════════════════════                      │
+    │  [-A1]  [-A2]          (vehicle body)       [-B3]  [-B4] │
+    └──────────────────────────────────────────────────────────┘
+    """
+    ALL_POSITIONS = ["+A1", "-A1", "+A2", "-A2", "+B3", "-B3", "+B4", "-B4"]
+
+    def card(pos):
+        info = shoe_data.get(pos, {})
+        sid  = info.get("shoe_id", f"CS-{lrv_id}-{pos}")
+        days = info.get("days", -1)
+        ts   = info.get("last_inspected", "")
+        return _shoe_card_html(sid, days, ts)
+
+    # The LRV body SVG — top-down simplified technical drawing
+    # Viewbox: 0 0 480 140  (width × height)
+    # A End = left, B End = right
+    # Two bogies per side — A bogie (left) and B bogie (right)
+    # Collector shoes sit on the rail below each bogie
+    vehicle_svg = """
+    <svg viewBox="0 0 480 140" xmlns="http://www.w3.org/2000/svg"
+         style="width:100%;max-width:520px;display:block;margin:0 auto;">
+      <!-- Vehicle outer body -->
+      <rect x="10" y="30" width="460" height="80" rx="16" ry="16"
+            fill="#F1F5F9" stroke="#94A3B8" stroke-width="2"/>
+      <!-- Cab A end (left wedge) -->
+      <polygon points="10,35 30,30 30,110 10,105"
+               fill="#E2E8F0" stroke="#94A3B8" stroke-width="1.5"/>
+      <!-- Cab B end (right wedge) -->
+      <polygon points="470,35 450,30 450,110 470,105"
+               fill="#E2E8F0" stroke="#94A3B8" stroke-width="1.5"/>
+      <!-- Cab A windows -->
+      <rect x="16" y="44" width="10" height="18" rx="2" fill="#CBD5E1"/>
+      <rect x="16" y="78" width="10" height="18" rx="2" fill="#CBD5E1"/>
+      <!-- Cab B windows -->
+      <rect x="454" y="44" width="10" height="18" rx="2" fill="#CBD5E1"/>
+      <rect x="454" y="78" width="10" height="18" rx="2" fill="#CBD5E1"/>
+      <!-- Saloon windows row -->
+      <rect x="50"  y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="90"  y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="130" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="170" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="210" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="250" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="290" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="330" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="370" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="410" y="36" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <!-- Lower windows -->
+      <rect x="50"  y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="90"  y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="130" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="170" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="210" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="250" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="290" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="330" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="370" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <rect x="410" y="82" width="28" height="22" rx="3" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1"/>
+      <!-- Bogie A (positions 1&2) — left -->
+      <rect x="62" y="62" width="56" height="16" rx="3"
+            fill="#475569" stroke="#1E293B" stroke-width="1.5"/>
+      <!-- Bogie B (positions 3&4) — right -->
+      <rect x="362" y="62" width="56" height="16" rx="3"
+            fill="#475569" stroke="#1E293B" stroke-width="1.5"/>
+      <!-- Bogie wheel indicators A -->
+      <circle cx="72"  cy="70" r="5" fill="#1E293B"/>
+      <circle cx="90"  cy="70" r="5" fill="#1E293B"/>
+      <circle cx="108" cy="70" r="5" fill="#1E293B"/>
+      <!-- Bogie wheel indicators B -->
+      <circle cx="372" cy="70" r="5" fill="#1E293B"/>
+      <circle cx="390" cy="70" r="5" fill="#1E293B"/>
+      <circle cx="408" cy="70" r="5" fill="#1E293B"/>
+      <!-- Centre coupling -->
+      <rect x="228" y="64" width="24" height="12" rx="2"
+            fill="#94A3B8" stroke="#64748B" stroke-width="1"/>
+      <!-- "A End" label -->
+      <text x="20" y="125" font-size="9" font-family="system-ui,sans-serif"
+            fill="#64748B" font-weight="600" text-anchor="middle">A End</text>
+      <!-- "B End" label -->
+      <text x="460" y="125" font-size="9" font-family="system-ui,sans-serif"
+            fill="#64748B" font-weight="600" text-anchor="middle">B End</text>
+      <!-- LRV ID centre label -->
+      <text x="240" y="72" font-size="11" font-family="monospace"
+            fill="#475569" font-weight="700" text-anchor="middle">{lrv_id}</text>
+
+      <!-- Connector lines: bogie A → card positions (SVG lines to outside) -->
+      <!-- Top A1 (+A1) -->
+      <line x1="78" y1="62" x2="68" y2="8"  stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Top A2 (+A2) -->
+      <line x1="102" y1="62" x2="158" y2="8" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Bottom A1 (-A1) -->
+      <line x1="78" y1="78" x2="68" y2="132" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Bottom A2 (-A2) -->
+      <line x1="102" y1="78" x2="158" y2="132" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Top B3 (+B3) -->
+      <line x1="378" y1="62" x2="322" y2="8"  stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Top B4 (+B4) -->
+      <line x1="402" y1="62" x2="412" y2="8"  stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Bottom B3 (-B3) -->
+      <line x1="378" y1="78" x2="322" y2="132" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+      <!-- Bottom B4 (-B4) -->
+      <line x1="402" y1="78" x2="412" y2="132" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="3,2"/>
+    </svg>
+    """
+
+    # Build the full diagram using CSS grid + positioned shoe cards
+    # Layout:
+    #   Row 0 (top):    [+A1] gap [+A2] ..... [+B3] gap [+B4]
+    #   Row 1 (middle): ======== SVG vehicle diagram =========
+    #   Row 2 (bottom): [-A1] gap [-A2] ..... [-B3] gap [-B4]
+
+    top_row = f"""
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:6px;padding:0 10px;margin-bottom:4px;">
+      <div style="display:flex;gap:6px;">
+        {card('+A1')}
+        {card('+A2')}
+      </div>
+      <div style="display:flex;gap:6px;">
+        {card('+B3')}
+        {card('+B4')}
+      </div>
+    </div>"""
+
+    bot_row = f"""
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;padding:0 10px;margin-top:4px;">
+      <div style="display:flex;gap:6px;">
+        {card('-A1')}
+        {card('-A2')}
+      </div>
+      <div style="display:flex;gap:6px;">
+        {card('-B3')}
+        {card('-B4')}
+      </div>
+    </div>"""
+
+    return f"""
+    <div style="
+        background:#F8FAFC;
+        border:1px solid #E2E8F0;
+        border-radius:14px;
+        padding:16px 12px 14px;
+        margin-bottom:20px;
+        box-shadow:0 1px 4px rgba(0,0,0,0.06);
+    ">
+        <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:#475569;
+                    text-transform:uppercase;text-align:center;margin-bottom:10px;">
+            {lrv_id}
+        </div>
+        {top_row}
+        <div style="padding:0 6px;">{vehicle_svg}</div>
+        {bot_row}
+    </div>"""
+
+
 def _show_last_inspected_summary(supabase):
     st.markdown('<div class="section-header">Last Inspected — Per Shoe</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-intro">Shows when each registered shoe was last captured by the camera station. '
-        'Shoes not inspected in the last 7 days are flagged so nothing gets overlooked.</div>',
+        '<div class="section-intro">Physical layout of each LRV showing when each collector shoe was last '
+        'inspected. Cards are positioned at their actual bogie locations — A End (left) positions 1 & 2, '
+        'B End (right) positions 3 & 4. Upper rail (+) shown above vehicle, lower rail (−) below.</div>',
         unsafe_allow_html=True,
     )
     try:
-        # Get only currently registered shoe IDs
+        # ── Registered shoes ───────────────────────────────────
         registered = (
             supabase.table("collector_shoes")
-            .select("shoe_id")
+            .select("shoe_id, lrv_asset_id")
             .execute()
             .data
         )
-        registered_ids = {r["shoe_id"] for r in registered} if registered else set()
+        if not registered:
+            st.info("No collector shoes registered yet.")
+            return
 
-        # inspection_sessions has asset_id (= shoe_id) and created_at
+        registered_ids = {r["shoe_id"] for r in registered}
+
+        # Group shoe_ids by LRV
+        from collections import defaultdict
+        lrv_shoes: dict = defaultdict(list)
+        for r in registered:
+            lrv_shoes[r["lrv_asset_id"]].append(r["shoe_id"])
+
+        # ── Latest inspection per shoe ─────────────────────────
         rows = (
             supabase.table("inspection_sessions")
             .select("asset_id, created_at")
@@ -1581,61 +1807,69 @@ def _show_last_inspected_summary(supabase):
             .execute()
             .data
         )
-        if not rows:
-            st.info("No inspection records found yet.")
-            return
 
-        # Filter to registered shoes only — exclude deleted ones
-        rows = [r for r in rows if r["asset_id"] in registered_ids]
-        if not rows:
-            st.info("No inspection records found for registered shoes.")
-            return
-
-        df = pd.DataFrame(rows)
-        df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
-
-        # Keep only the most recent session per shoe
-        latest = (
-            df.sort_values("created_at", ascending=False)
-            .groupby("asset_id", as_index=False)
-            .first()
-        )
-
-        now = pd.Timestamp.now(tz="UTC")
-        latest["days_ago"] = (now - latest["created_at"]).dt.days
-        latest["last_inspected"] = (
-            latest["created_at"]
-            .dt.tz_convert("Asia/Singapore")
-            .dt.strftime("%d %b %Y  %H:%M")
-        )
-        latest = latest.sort_values("asset_id")
-
-        cols = st.columns(4)
-        for idx, row in latest.reset_index(drop=True).iterrows():
-            days = int(row["days_ago"])
-            if days == 0:
-                badge_color, badge_text = "#16A34A", "Today"
-            elif days <= 3:
-                badge_color, badge_text = "#2563EB", f"{days}d ago"
-            elif days <= 7:
-                badge_color, badge_text = "#D97706", f"{days}d ago"
-            else:
-                badge_color, badge_text = "#DC2626", f"{days}d ago ⚠️"
-
-            with cols[idx % 4]:
-                st.markdown(
-                    f"""<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;
-                        padding:14px 12px;margin-bottom:10px;text-align:center;">
-                        <div style="font-size:13px;font-weight:700;color:#1E3A5F;margin-bottom:6px;">
-                            {row['asset_id']}
-                        </div>
-                        <div style="display:inline-block;background:{badge_color};color:white;
-                            border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600;
-                            margin-bottom:6px;">{badge_text}</div>
-                        <div style="font-size:11px;color:#64748B;">{row['last_inspected']}</div>
-                    </div>""",
-                    unsafe_allow_html=True,
+        # Build lookup: shoe_id → {days, last_inspected}
+        shoe_latest: dict = {}
+        if rows:
+            df = pd.DataFrame(rows)
+            df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
+            df = df[df["asset_id"].isin(registered_ids)]
+            if not df.empty:
+                latest = (
+                    df.sort_values("created_at", ascending=False)
+                    .groupby("asset_id", as_index=False)
+                    .first()
                 )
+                now = pd.Timestamp.now(tz="UTC")
+                latest["days_ago"] = (now - latest["created_at"]).dt.days
+                latest["ts_sgt"] = (
+                    latest["created_at"]
+                    .dt.tz_convert("Asia/Singapore")
+                    .dt.strftime("%d %b %Y %H:%M")
+                )
+                for _, row in latest.iterrows():
+                    shoe_latest[row["asset_id"]] = {
+                        "days": int(row["days_ago"]),
+                        "last_inspected": row["ts_sgt"],
+                    }
+
+        # ── Render one diagram per LRV ─────────────────────────
+        # All 8 possible position suffixes
+        ALL_POS = ["+A1", "-A1", "+A2", "-A2", "+B3", "-B3", "+B4", "-B4"]
+
+        sorted_lrvs = sorted(lrv_shoes.keys())
+
+        # Legend
+        st.markdown("""
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;">
+          <span style="background:#16A34A;color:white;padding:3px 10px;border-radius:10px;font-weight:600;">Today</span>
+          <span style="background:#2563EB;color:white;padding:3px 10px;border-radius:10px;font-weight:600;">≤ 3d ago</span>
+          <span style="background:#D97706;color:white;padding:3px 10px;border-radius:10px;font-weight:600;">≤ 7d ago</span>
+          <span style="background:#DC2626;color:white;padding:3px 10px;border-radius:10px;font-weight:600;">&gt; 7d ⚠️</span>
+          <span style="background:#94A3B8;color:white;padding:3px 10px;border-radius:10px;font-weight:600;">Not inspected</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        for lrv_id in sorted_lrvs:
+            shoe_ids = lrv_shoes[lrv_id]
+
+            # Build shoe_data dict keyed by position suffix
+            shoe_data = {}
+            for sid in shoe_ids:
+                # Extract position suffix from shoe_id: "CS-LRV00-+A1" → "+A1"
+                try:
+                    prefix = f"CS-{lrv_id}-"
+                    pos = sid[len(prefix):]
+                except Exception:
+                    pos = sid[-3:]
+                info = shoe_latest.get(sid, {})
+                shoe_data[pos] = {
+                    "shoe_id": sid,
+                    "days": info.get("days", -1),
+                    "last_inspected": info.get("last_inspected", ""),
+                }
+
+            st.markdown(_lrv_diagram_html(lrv_id, shoe_data), unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Could not load last inspected summary: {e}")
