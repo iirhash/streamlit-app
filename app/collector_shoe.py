@@ -1633,14 +1633,14 @@ def _lrv_diagram_html(lrv_id, shoe_data):
 
     lbl = 'style="font-size:9px;font-weight:700;letter-spacing:1px;color:#64748B;text-transform:uppercase;margin-bottom:4px;"'
 
-    # POS 1/3 centered at 28% (upper bogie bracket midpoint)
-    # POS 2/4 centered at 72% (lower bogie bracket midpoint)
+    # Fixed px positions so cards don't shift when image size changes.
+    # 22% of 380px = 84px (POS 1/3), 78% of 380px = 296px (POS 2/4)
     def _corner(pos_label, p1, p2, align):
-        pct = "22%" if pos_label in ("POS 1", "POS 3") else "78%"
+        top_px = "84px" if pos_label in ("POS 1", "POS 3") else "296px"
         alg = "flex-start" if align == "left" else "flex-end"
         side = "left:0;" if align == "left" else "right:0;"
         return (
-            '<div style="position:absolute;top:' + pct + ';transform:translateY(-50%);'
+            '<div style="position:absolute;top:' + top_px + ';transform:translateY(-50%);'
             + side +
             'display:flex;flex-direction:column;align-items:' + alg + ';">'
             '<div ' + lbl + '>' + pos_label + '</div>'
@@ -1671,7 +1671,7 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     # position:absolute to sit exactly at the line-end vertical positions.
     img_wrap = (
         '<div style="position:relative;">'
-        + '<img src="' + _IMG + '" alt="LRV ' + lrv_id + '" style="width:100%;min-height:380px;display:block;object-fit:fill;"/>'
+        + '<img src="' + _IMG + '" alt="LRV ' + lrv_id + '" style="width:100%;min-height:260px;max-height:300px;display:block;object-fit:fill;"/>'
         + lrv_badge
         + '<div style="position:absolute;top:0;left:-148px;width:144px;height:100%;">'
         + _corner("POS 1", "+A1", "-A1", "left")
