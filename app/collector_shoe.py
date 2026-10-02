@@ -1663,30 +1663,34 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     #   Pos2 bottom-left:  20.6%, 62.7%
     #   Pos3 top-right:    79.4%, 41.8%
     #   Pos4 bottom-right: 79.4%, 62.7%
+    # Unique marker IDs per LRV to avoid DOM conflicts when multiple diagrams render
+    _mid = lrv_id.replace("-", "").lower()
+    _ah  = "ah-"  + _mid
+    _ah2 = "ah2-" + _mid
     arrow_svg = (
         '<svg viewBox="0 0 100 100" preserveAspectRatio="none" '
         'xmlns="http://www.w3.org/2000/svg" '
         'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">'
         '<defs>'
-        '<marker id="ah" markerWidth="5" markerHeight="5" refX="5" refY="2.5" orient="auto">'
+        '<marker id="' + _ah + '" markerWidth="5" markerHeight="5" refX="5" refY="2.5" orient="auto">'
         '<polygon points="0 0, 5 2.5, 0 5" fill="#475569"/>'
         '</marker>'
-        '<marker id="ah2" markerWidth="5" markerHeight="5" refX="0" refY="2.5" orient="auto">'
+        '<marker id="' + _ah2 + '" markerWidth="5" markerHeight="5" refX="0" refY="2.5" orient="auto">'
         '<polygon points="5 0, 0 2.5, 5 5" fill="#475569"/>'
         '</marker>'
         '</defs>'
         # Pos1: bogie → left edge upper
         '<line x1="20.6" y1="41.8" x2="1" y2="30" '
-        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#ah2)"/>'
+        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#' + _ah2 + ')"/>'
         # Pos2: bogie → left edge lower
         '<line x1="20.6" y1="62.7" x2="1" y2="71" '
-        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#ah2)"/>'
+        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#' + _ah2 + ')"/>'
         # Pos3: bogie → right edge upper
         '<line x1="79.4" y1="41.8" x2="99" y2="30" '
-        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#ah)"/>'
+        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#' + _ah + ')"/>'
         # Pos4: bogie → right edge lower
         '<line x1="79.4" y1="62.7" x2="99" y2="71" '
-        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#ah)"/>'
+        'stroke="#475569" stroke-width="0.9" stroke-dasharray="2,1.5" marker-end="url(#' + _ah + ')"/>'
         '</svg>'
     )
 
