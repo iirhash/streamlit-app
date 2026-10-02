@@ -179,11 +179,11 @@ Before capturing any images, ensure the following:
     st.markdown("""
 Each LRV has **8 collector shoes** across 2 bogies (A End and B End), labelled using the convention `CS-LRV[XX]-[+/-][A/B][position]`:
 
-- **`+`** = Upper rail &nbsp;|&nbsp; **`-`** = Lower rail
+- **`+`** = Upper shoe &nbsp;|&nbsp; **`-`** = Lower shoe
 - **`A`** = A End bogie (left) &nbsp;|&nbsp; **`B`** = B End bogie (right)
 - **Position 1 & 2** = A End &nbsp;|&nbsp; **Position 3 & 4** = B End
 
-| Label | Bogie | Position | Rail |
+| Label | Bogie | Position | Shoe |
 |-------|-------|----------|------|
 | **CS-LRV00-+A1** | A End | Position 1 | Upper (+) |
 | **CS-LRV00--A1** | A End | Position 1 | Lower (−) |
