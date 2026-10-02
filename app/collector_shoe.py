@@ -1583,9 +1583,16 @@ def _shoe_card_html(shoe_id, days, last_inspected):
         text_color   = "#1E293B"
         ts_html = f'<div style="font-size:9px;color:#64748B;margin-top:3px;line-height:1.2;">{last_inspected}</div>'
 
-    # Short position label (e.g. "+A1")
+    # Short position label (e.g. "+A1", "-A2")
+    # shoe_id format: CS-LRV00-+A1  → split on "-", take from index 2 onward and rejoin
+    # For negative shoes: CS-LRV00--A2 → parts = ['CS','LRV00','','A2'] so we detect empty part
     try:
-        pos_label = shoe_id.split("-")[-1]   # "+A1", "-B3", etc.
+        parts = shoe_id.split("-")
+        # parts[0]="CS", parts[1]="LRV00", parts[2]="+A1" or "" (for negative), parts[3]="A2" (for negative)
+        if len(parts) >= 4 and parts[2] == "":
+            pos_label = "-" + parts[3]   # e.g. "-A2"
+        else:
+            pos_label = parts[2]         # e.g. "+A1"
     except Exception:
         pos_label = shoe_id
 
