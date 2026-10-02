@@ -1664,7 +1664,7 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     rail_legend = (
         '<div style="display:flex;gap:16px;justify-content:center;margin-top:10px;'
         'font-size:10px;color:#94A3B8;">'
-        '<span>&#43; Upper rail</span><span>&#8722; Lower rail</span></div>'
+        '<span>&#43; Upper shoe</span><span>&#8722; Lower shoe</span></div>'
     )
 
     # Image container is position:relative so the side card wrappers can use
@@ -1746,7 +1746,7 @@ def _show_last_inspected_summary(supabase):
     st.markdown(
         '<div class="section-intro">Physical layout of each LRV showing when each collector shoe was last '
         'inspected. Cards are positioned at their actual bogie locations — A End (left) positions 1 & 2, '
-        'B End (right) positions 3 & 4. Upper rail (+) shown above vehicle, lower rail (−) below.</div>',
+        'B End (right) positions 3 & 4. Upper shoe (+) shown above vehicle, lower shoe (−) below.</div>',
         unsafe_allow_html=True,
     )
     try:
