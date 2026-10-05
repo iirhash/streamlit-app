@@ -983,21 +983,21 @@ def _show_confidence_progression(supabase):
         labels={"confidence_pct": "YOLO Confidence (%)", "detected_at": ""},
     )
 
-    # Add 75% threshold line
+    # Auto-confirm threshold (all defects except scuff marks) — matches CONFIDENCE_THRESHOLD
     fig.add_hline(
-        y=75,
+        y=85,
         line_dash="dash",
         line_color="#E8920A",
-        annotation_text="75% review threshold",
+        annotation_text="85% auto-confirm",
         annotation_position="right",
     )
 
-    # Add 95% target line
+    # Scuff marks threshold — matches SCUFF_MARKS_THRESHOLD
     fig.add_hline(
-        y=95,
+        y=50,
         line_dash="dot",
-        line_color="#0A8A72",
-        annotation_text="95% target",
+        line_color="#1A6FB5",
+        annotation_text="50% scuff marks",
         annotation_position="right",
     )
 
@@ -1043,7 +1043,7 @@ def _show_confidence_progression(supabase):
 
     st.caption(
         "⚠️ Note: confidence reflects how visually distinct the defect appears to the YOLO model. "
-        "A jump in confidence may also reflect a model update (v3→v4→v5) rather than physical worsening. "
+        "A jump in confidence may also reflect a model update (e.g. v11 → v12) rather than physical worsening. "
         "Always correlate with physical depth gauge measurements for definitive severity assessment."
     )
 
