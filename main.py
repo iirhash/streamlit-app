@@ -208,7 +208,7 @@ This ensures full surface coverage for the YOLO defect model.
 | Shot | Angle | Purpose |
 |------|-------|---------|
 | **Shot 1** | Left 15° | Capture left edge wear and side cracks |
-| **Shot 2** | Centre 0° | Main surface — pores, scuff marks, oxidation |
+| **Shot 2** | Centre 0° | Main surface — wear, scuff marks, corrosion |
 | **Shot 3** | Right 15° | Capture right edge wear and symmetry check |
     """)
 
@@ -222,7 +222,7 @@ This ensures full surface coverage for the YOLO defect model.
 
     st.markdown("""
 **How to capture:**
-1. Open the **📱 Mobile Capture Station** or **📡 DJI Wireless Station** tab, or launch the **Wired or Wireless Station from Workstation (Defect Viewer Page)**
+1. Go to **🚀 Launch Camera Stations** and choose a workstation station (Wired / Wireless) or a mobile station (Mobile Capture / DJI Wireless Mobile)
 2. Select the shoe ID from the dropdown
 3. Take Shot 1 (Left 15°), Shot 2 (Centre 0°), Shot 3 (Right 15°) in order
 4. Review the YOLO detection overlay before submitting
@@ -246,8 +246,8 @@ This ensures full surface coverage for the YOLO defect model.
 **Steps:**
 1. Connect the DJI Action 3 to the laptop using the USB-C cable
 2. Power on the DJI Action 3
-3. On the dashboard, go to **🔍 Defect Viewer**
-4. Click **🚀 Launch Wired Station** — a camera setup window will open on the desktop
+3. On the dashboard, go to **🚀 Launch Camera Stations** → **🖥️ Launch from Workstation**
+4. Click **🚀 Wired Capture** — a camera setup window will open on the desktop
 5. Select the shoe ID in the popup window
 6. Follow the on-screen prompts to capture Left 15°, Centre 0°, Right 15° shots
 7. The station will auto-submit each photo to the YOLO detection pipeline
@@ -268,8 +268,8 @@ This ensures full surface coverage for the YOLO defect model.
 **Steps:**
 1. Power on the DJI Action 3 and connect it to the depot Wi-Fi network
 2. Confirm your laptop is on the **same Wi-Fi network** as the DJI camera
-3. On the dashboard, go to **🔍 Defect Viewer**
-4. Click **🚀 Launch Wireless Station** — a live stream window will open on the desktop
+3. On the dashboard, go to **🚀 Launch Camera Stations** → **🖥️ Launch from Workstation**
+4. Click **🚀 Wireless Capture** — a live stream window will open on the desktop
 5. Enter the RTMP stream URL shown in DJI Mimo into the station window (e.g. `rtmp://10.x.x.x:1936/live/stream`)
 6. Capture frames using the on-screen capture button for each angle (Left 15°, Centre 0°, Right 15°)
 7. The station will submit captured frames to the YOLO detection pipeline
@@ -286,7 +286,7 @@ This ensures full surface coverage for the YOLO defect model.
 
 **Steps:**
 1. Open the dashboard on your mobile browser
-2. Navigate to the **📱 Mobile Capture Station** tab
+2. Go to **🚀 Launch Camera Stations** → **📱 Launch from Mobile Device** → **📱 Mobile Device Capture**
 3. Select the shoe ID from the dropdown
 4. Use your phone camera to capture Left 15°, Centre 0°, Right 15° shots
 5. Submit each photo — the system will run YOLO detection automatically
@@ -302,7 +302,7 @@ This ensures full surface coverage for the YOLO defect model.
 **Steps:**
 1. Power on the DJI Action 3 and connect it to the depot Wi-Fi network
 2. Open your phone browser and navigate to **`http://10.243.253.63:8501`** (depot local network — do NOT use the streamlit.app URL)
-3. Navigate to the **📡 DJI Wireless Station (Mobile)** tab
+3. Go to **🚀 Launch Camera Stations** → **📱 Launch from Mobile Device** → **📡 DJI Wireless Mobile Remote Capture**
 4. Enter the RTMP stream URL and click **Connect to Stream**
 5. Capture frames for each angle (Left 15°, Centre 0°, Right 15°) and submit
 
@@ -322,15 +322,15 @@ After an image is submitted, the system runs an AI defect scan (Roboflow YOLOv11
 
 | Icon | Meaning |
 |------|---------|
-| 🔍 ✅ **Auto-confirmed** | High confidence detection (≥85%) — logged automatically |
-| 🔍 ⚠️ **Needs Review** | Low confidence or scuff marks detected — requires IC sign-off |
+| 🔍 ✅ **Auto-confirmed** | High confidence detection (≥85%, or ≥50% for scuff marks) — logged automatically |
+| 🔍 ⚠️ **Needs Review** | Confidence below 85% (wear, crack, corrosion) — requires IC sign-off |
 | ✅ **No Defect** | Model found no defects above threshold |
 
 **Defect classes the model detects:**
 
-`wear` · `crack` · `pore` · `scratch` · `scuff marks` · `oxidation` · `water mark` · `none`
+`wear` · `crack` · `scuff marks` · `corrosion` · `none`
 
-> 📌 **Scuff marks** use a lower threshold (50%) due to their subtle appearance. These will always go to the **Needs Review** queue.
+> 📌 **Scuff marks** use a lower threshold (50%) due to their subtle appearance. They are expected from normal rail contact, so they are recorded for trend tracking but **do not** enter the Needs Review queue.
 
 **What to do after detection:**
 - Auto-confirmed results are logged to the database immediately
@@ -347,7 +347,7 @@ Visual inspection does not replace physical measurement. Escalate to the IC if y
 
 - **Visible cracking** running across the width of the shoe
 - **Deep scoring** or material loss visible to the naked eye
-- **Severe oxidation** covering more than 30% of the contact surface
+- **Severe corrosion** covering more than 30% of the contact surface
 - Any defect that the YOLO model flags repeatedly across 3+ sessions
 
 > 🔴 **Do not operate the LRV if you suspect a shoe is at or near replacement threshold.** Contact the IC immediately.
