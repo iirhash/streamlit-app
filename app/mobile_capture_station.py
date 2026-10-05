@@ -400,10 +400,10 @@ def show():
                     elif shoe_rec and shoe_rec.get("rotation_status") == "not_rotated" and rotation_status == "rotated_once":
                         # CASE C — update rotation to rotated_once
                         try:
-                            supabase.table("collector_shoes") \
-                                .update({"rotation_status": "rotated_once"}) \
-                                .eq("shoe_id", asset_id) \
-                                .execute()
+                            # RPC — anon cannot UPDATE collector_shoes directly (RLS)
+                            rot_resp = supabase.rpc("confirm_shoe_rotation", {"p_shoe_id": asset_id}).execute()
+                            if rot_resp.data is not True:
+                                st.warning("⚠️ Rotation was not recorded — the shoe may no longer be pending rotation. Please inform your IC.")
                         except Exception as e:
                             st.error(f"Could not update rotation status: {e}")
                             st.stop()
