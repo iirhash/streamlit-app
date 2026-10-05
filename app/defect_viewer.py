@@ -7,7 +7,7 @@
 import streamlit as st
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.login import get_supabase, is_logged_in, get_role
@@ -631,7 +631,7 @@ def _delete_record(supabase, rec_id, raw_path, annotated_path, session_id):
                                 supabase.table("defect_records").update({
                                     "reviewed":         True,
                                     "reviewed_by":      st.session_state.get("user_id"),
-                                    "reviewed_at":      datetime.now().isoformat(),
+                                    "reviewed_at":      datetime.now(timezone.utc).isoformat(),
                                     "reviewer_verdict": verdict,
                                     "reviewer_notes":   notes.strip() or None,
                                 }).eq("id", rec_id).execute()
@@ -759,7 +759,7 @@ def _tab_review_queue(supabase):
                                 supabase.table("defect_records").update({
                                     "reviewed":         True,
                                     "reviewed_by":      st.session_state.get("user_id"),
-                                    "reviewed_at":      datetime.now().isoformat(),
+                                    "reviewed_at":      datetime.now(timezone.utc).isoformat(),
                                     "reviewer_verdict": verdict,
                                     "reviewer_notes":   notes.strip() or None,
                                 }).eq("id", rec_id).execute()
