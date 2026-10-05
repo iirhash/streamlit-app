@@ -2127,6 +2127,11 @@ def show():
     if tab3:
         # ── Registered shoes ───────────────────────────────────
         st.markdown('<div class="section-header">Registered Shoes</div>', unsafe_allow_html=True)
+        if st.button("🔄 Refresh Registry", key="refresh_registry"):
+            load_shoes.clear()
+            load_fleet_status.clear()
+            st.session_state["cs_active_tab"] = 2
+            st.rerun()
         st.markdown('<div class="section-intro">All collector shoes currently registered in the system. Edit or delete records here.</div>', unsafe_allow_html=True)
 
         if not shoes_df.empty:
