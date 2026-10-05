@@ -166,7 +166,7 @@ def _run_pipeline(supabase, image_bytes, asset_id, technician_name, session_id, 
                 if auto_conf:
                     record["reviewer_notes"] = f"Auto-confirmed by system — confidence {conf:.1%} meets or exceeds the {threshold:.0%} threshold. No human review required."
                     record["reviewer_verdict"] = "confirmed"
-                    record["reviewed_at"] = datetime.now().isoformat()
+                    record["reviewed_at"] = datetime.now(timezone.utc).isoformat()
 
                 supabase.table("defect_records").insert(record).execute()
 
