@@ -807,10 +807,10 @@ def _get_session_info_gui(supabase):
             # CASE C — update rotation if confirmed
             if rot_var and rot_var.get() == "yes":
                 try:
-                    supabase.table("collector_shoes") \
-                        .update({"rotation_status": "rotated_once"}) \
-                        .eq("shoe_id", asset) \
-                        .execute()
+                    # RPC — anon cannot UPDATE collector_shoes directly (RLS)
+                    rot_resp = supabase.rpc("confirm_shoe_rotation", {"p_shoe_id": asset}).execute()
+                    if rot_resp.data is not True:
+                        messagebox.showwarning("Rotation not recorded", "The shoe may no longer be pending rotation. Please inform your IC.")
                 except Exception as e:
                     messagebox.showerror("Error", f"Could not update rotation status: {e}")
                     return
