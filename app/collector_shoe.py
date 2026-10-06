@@ -474,7 +474,7 @@ def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
         else:
             st.markdown('<div class="section-header">🚃 Fleet Status</div>', unsafe_allow_html=True)
     with h2:
-        if daily_sel and role in ("management", "supervisor"):
+        if daily_sel and role in ("management", "ic"):
             if st.button("✏️ Override", key="fleet_override_btn"):
                 st.session_state["lrv_sel_override"] = True
                 st.session_state["cs_active_tab"] = 0
@@ -2166,13 +2166,14 @@ def show():
                     with col1:
                         st.markdown(f"**{shoe_id}** &nbsp;·&nbsp; {condition} &nbsp;·&nbsp; {baseline}mm baseline &nbsp;·&nbsp; Installed: {reg_at}")
                         st.caption(f"Rotation: {ROTATION_OPTIONS.get(rot_status, rot_status)}")
+                    _can_manage = is_logged_in() and get_role() in ("management", "ic")
                     with col2:
-                        if st.button("✏️ Edit", key=f"edit_btn_{shoe_id}", use_container_width=True):
+                        if _can_manage and st.button("✏️ Edit", key=f"edit_btn_{shoe_id}", use_container_width=True):
                             st.session_state[f"edit_shoe_{shoe_id}"] = not st.session_state.get(f"edit_shoe_{shoe_id}", False)
                             st.session_state["cs_active_tab"] = 2
                             st.rerun()
                     with col3:
-                        if st.button("🗑️ Delete", key=f"del_btn_{shoe_id}", use_container_width=True):
+                        if _can_manage and st.button("🗑️ Delete", key=f"del_btn_{shoe_id}", use_container_width=True):
                             st.session_state[f"del_shoe_{shoe_id}"] = True
                             st.session_state["cs_active_tab"] = 2
                             st.rerun()
