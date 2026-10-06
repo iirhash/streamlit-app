@@ -228,8 +228,8 @@ WEAR_ACTIONS = [
 def _get_physics_panel(defect, confidence):
     """
     Role-gated physics panel — card-based layout with colour-coded severity.
-    - Management: full panel (why + action table + minimise)
-    - Others: not shown
+    - IC + Management: full panel (why + action table + minimise)
+    - Technicians (not logged in): not shown
     """
     if not is_logged_in():
         return
@@ -273,8 +273,8 @@ def _get_physics_panel(defect, confidence):
             unsafe_allow_html=True
         )
 
-        # ── Why it occurs — management only ───────────────────
-        if role == "management":
+        # ── Why it occurs — IC + management ───────────────────
+        if role in ("management", "ic"):
             st.markdown(
                 f"""<div style="background:#F8FAFC;border:1px solid #E2E8F0;
                 border-radius:8px;padding:12px 16px;margin-bottom:12px;">
@@ -328,8 +328,8 @@ def _get_physics_panel(defect, confidence):
                     unsafe_allow_html=True
                 )
 
-        # ── How to minimise — management only ─────────────────
-        if role == "management" and kb["minimise"]:
+        # ── How to minimise — IC + management ─────────────────
+        if role in ("management", "ic") and kb["minimise"]:
             with st.expander("✅ How to Minimise", expanded=False):
                 for tip in kb["minimise"]:
                     st.markdown(f"- {tip}")
@@ -2102,7 +2102,7 @@ def show():
     supabase = get_supabase()
 
     # ── Retrain notification banner (management only) ──────────
-    if is_logged_in() and get_role() in ("management", "supervisor", "ic"):
+    if is_logged_in() and get_role() == "management":
         count = get_capture_count(supabase)
         if count >= RETRAIN_THRESHOLD:
             st.warning(
@@ -2312,21 +2312,21 @@ def show():
         st.divider()
 
     # ── Main tabs ───────────────────────────────────────────────
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "✅ Reviewed",
-        "🖼️ Recent Detections",
-        "📥 Export / Report",
-        "🔄 Retrain",
-    ])
+    # Retrain tab is management only — IC sees the other three tabs
+    _tab_labels = ["✅ Reviewed", "🖼️ Recent Detections", "📥 Export / Report"]
+    if get_role() == "management":
+        _tab_labels.append("🔄 Retrain")
+    _tabs = st.tabs(_tab_labels)
 
-    with tab1:
+    with _tabs[0]:
         _tab_reviewed(supabase)
 
-    with tab2:
+    with _tabs[1]:
         _tab_recent(supabase)
 
-    with tab3:
+    with _tabs[2]:
         _tab_export(supabase)
 
-    with tab4:
-        _tab_retrain(supabase)
+    if get_role() == "management":
+        with _tabs[3]:
+            _tab_retrain(supabase)
