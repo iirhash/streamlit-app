@@ -530,10 +530,18 @@ def _show_fleet_status(fleet, shoes_df, daily_sel, supabase):
                 st.session_state["cs_active_tab"] = 0
                 st.rerun()
 
+    # Apply the LRV filter (if one is active and still in today's selection)
+    if active_filter and active_filter not in sorted_lrvs:
+        st.session_state.pop("fleet_filter_lrv", None)
+        active_filter = None
+    shown_lrvs = [active_filter] if active_filter else sorted_lrvs
+    if active_filter:
+        st.caption(f"🔎 Showing **{active_filter}** only — click ✕ Clear to show all LRVs.")
+
     # Fleet summary table
     with st.expander("📋 Fleet Summary Table", expanded=True):
         rows = []
-        for lrv in sorted_lrvs:
+        for lrv in shown_lrvs:
             info = fleet[lrv]
             emoji, label, _, _, _ = STATUS_CONF[info["status"]]
             last = "Never"
@@ -1808,6 +1816,11 @@ def _show_last_inspected_summary(supabase):
         ALL_POS = ["+A1", "-A1", "+A2", "-A2", "+B3", "-B3", "+B4", "-B4"]
 
         sorted_lrvs = sorted(lrv_shoes.keys())
+
+        # Respect the Fleet Status filter (Overview tab)
+        _flt = st.session_state.get("fleet_filter_lrv")
+        if _flt and _flt in lrv_shoes:
+            sorted_lrvs = [_flt]
 
         # Legend
         st.markdown("""
