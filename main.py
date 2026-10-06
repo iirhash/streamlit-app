@@ -118,7 +118,7 @@ with st.sidebar:
                 <div style="font-size:13px;color:#E6EDF3;margin-top:2px;">
                     👷 Technician View
                 </div>
-                <div style="font-size:11px;color:#7D8590;">Read-only</div>
+                <div style="font-size:11px;color:#7D8590;">Capture &amp; view</div>
             </div>
             """,
             unsafe_allow_html=True,
