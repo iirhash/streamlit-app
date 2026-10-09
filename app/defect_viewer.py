@@ -342,6 +342,66 @@ def _get_physics_panel(defect, confidence):
         )
 
 
+
+# ── Standardised review reasons ────────────────────────────────
+# A fixed reason list keeps IC review records consistent; the optional
+# "Additional remarks" box captures anything the list does not cover.
+REVIEW_REASONS = {
+    "confirmed": [
+        "Wear visible on contact surface",
+        "Crack visible",
+        "Corrosion visible",
+        "Scuff marks visible",
+    ],
+    "false_positive": [
+        "Glare / reflection",
+        "Dirt or debris",
+        "Water mark",
+        "Shadow",
+        "Outside shoe area",
+        "Normal surface texture",
+    ],
+    "uncertain": [
+        "Image blurry / out of focus",
+        "Poor lighting",
+        "Defect partly hidden",
+        "Needs depth gauge check",
+    ],
+}
+REMARKS_SEP = " | Additional remarks: "
+
+
+def _review_reason_inputs(verdict, key_suffix):
+    """Renders the required Reason dropdown + optional Additional remarks box.
+    Returns the combined string to store in reviewer_notes."""
+    reason = st.selectbox(
+        "Reason (required)",
+        REVIEW_REASONS.get(verdict, []),
+        key=f"reason_{verdict}_{key_suffix}",
+    )
+    remarks = st.text_area(
+        "Additional remarks (optional)",
+        placeholder="e.g. any further observation not covered above",
+        height=70,
+        key=f"remarks_{key_suffix}",
+    )
+    notes = f"Reason: {reason}"
+    if remarks.strip():
+        notes += REMARKS_SEP + remarks.strip()
+    return notes
+
+
+def _show_review_notes(notes):
+    """Shows Reason and Additional remarks on separate lines."""
+    if not notes:
+        return
+    if REMARKS_SEP in notes:
+        reason_part, remarks_part = notes.split(REMARKS_SEP, 1)
+        st.caption(reason_part)
+        st.caption(f"Additional remarks: {remarks_part}")
+    else:
+        st.caption(notes)
+
 # ── Validation helpers ─────────────────────────────────────────
 def _needs_review(defect, confidence):
     """Returns True if detection needs human review based on per-defect threshold.
@@ -618,12 +678,7 @@ def _delete_record(supabase, rec_id, raw_path, annotated_path, session_id):
                         }[x],
                         key=f"verdict_old_{rec_id}",
                     )
-                    notes = st.text_area(
-                        "Reviewer Notes (optional)",
-                        placeholder="e.g. Confirmed wear, depth gauge measurement pending.",
-                        height=80,
-                        key=f"notes_old_{rec_id}",
-                    )
+                    notes = _review_reason_inputs(verdict, f"old_{rec_id}")
                     r1, r2 = st.columns(2)
                     with r1:
                         if st.button("💾 Submit Review", key=f"submit_old_{rec_id}", type="primary"):
@@ -633,7 +688,7 @@ def _delete_record(supabase, rec_id, raw_path, annotated_path, session_id):
                                     "reviewed_by":      st.session_state.get("user_id"),
                                     "reviewed_at":      datetime.now(timezone.utc).isoformat(),
                                     "reviewer_verdict": verdict,
-                                    "reviewer_notes":   notes.strip() or None,
+                                    "reviewer_notes":   notes,
                                 }).eq("id", rec_id).execute()
                                 st.session_state.pop(review_key, None)
                                 st.session_state["review_success_msg"] = f"✅ Review submitted — {verdict.replace('_', ' ').title()}"
@@ -746,12 +801,7 @@ def _tab_review_queue(supabase):
                         key=f"verdict_{rec_id}",
                         horizontal=False,
                     )
-                    notes = st.text_area(
-                        "Reviewer Notes (optional)",
-                        placeholder="e.g. Confirmed wear, depth gauge measurement pending. Rotation scheduled for next PM.",
-                        height=80,
-                        key=f"notes_{rec_id}",
-                    )
+                    notes = _review_reason_inputs(verdict, f"{rec_id}")
                     r1, r2 = st.columns(2)
                     with r1:
                         if st.button("💾 Submit Review", key=f"submit_review_{rec_id}", type="primary"):
@@ -761,7 +811,7 @@ def _tab_review_queue(supabase):
                                     "reviewed_by":      st.session_state.get("user_id"),
                                     "reviewed_at":      datetime.now(timezone.utc).isoformat(),
                                     "reviewer_verdict": verdict,
-                                    "reviewer_notes":   notes.strip() or None,
+                                    "reviewer_notes":   notes,
                                 }).eq("id", rec_id).execute()
                                 st.session_state.pop(review_key, None)
                                 st.session_state["review_success_msg"] = f"✅ Review submitted — {verdict.replace('_', ' ').title()}"
@@ -911,7 +961,7 @@ def _tab_reviewed(supabase):
                         if verdict:
                             st.markdown(f"**Verdict:** {VERDICT_DISPLAY.get(verdict, verdict)}")
                         if notes:
-                            st.caption(notes)
+                            _show_review_notes(notes)
                     st.caption(f"✅ Reviewed: {reviewed_at}")
                 with col2:
                     st.markdown(
@@ -1433,8 +1483,14 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
                 if rec["Reviewer Notes"]:
                     doc.add_paragraph()
                     note_p = doc.add_paragraph()
+                    _note_txt = str(rec["Reviewer Notes"])
+                    _reason_txt, _, _remarks_txt = _note_txt.partition(REMARKS_SEP)
                     note_p.add_run("Reviewer Notes: ").bold = True
-                    note_p.add_run(str(rec["Reviewer Notes"]))
+                    note_p.add_run(_reason_txt)
+                    if _remarks_txt:
+                        rem_p = doc.add_paragraph()
+                        rem_p.add_run("Additional remarks: ").bold = True
+                        rem_p.add_run(_remarks_txt)
 
                 if rec["Physics Action"]:
                     pa_p = doc.add_paragraph()
