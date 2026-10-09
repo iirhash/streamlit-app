@@ -1406,6 +1406,33 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
 
     doc.add_page_break()
 
+    # ── Wear severity reference (OMM) ──────────────────────────
+    doc.add_heading("Wear Severity Reference", level=1)
+    ref_intro = doc.add_paragraph(
+        "Action to take after measuring wear depth with a depth gauge, "
+        "based on the 810/810A Operations and Maintenance Manual (original shoe depth 16mm)."
+    )
+    ref_intro.runs[0].font.size = Pt(10)
+    sev_table = doc.add_table(rows=len(WEAR_ACTIONS) + 1, cols=2)
+    sev_table.style = "Table Grid"
+    for j, h in enumerate(["Wear Severity", "Action"]):
+        sev_table.rows[0].cells[j].text = h
+        set_cell_bg(sev_table.rows[0].cells[j], "F0FDF4")
+        if sev_table.rows[0].cells[j].paragraphs[0].runs:
+            sev_table.rows[0].cells[j].paragraphs[0].runs[0].font.bold = True
+    SEV_BG = ["F0FDF4", "FEFCE8", "FFF7ED", "FFF7ED", "FEF2F2"]
+    for i, (label, action) in enumerate(WEAR_ACTIONS):
+        sev_table.rows[i + 1].cells[0].text = label
+        sev_table.rows[i + 1].cells[1].text = action
+        set_cell_bg(sev_table.rows[i + 1].cells[0], SEV_BG[i] if i < len(SEV_BG) else "F8FAFC")
+    ref_note = doc.add_paragraph(
+        "⚠️ AI confidence does not measure wear depth. Severity must be confirmed with a depth gauge."
+    )
+    ref_note.runs[0].font.size = Pt(9)
+    ref_note.runs[0].font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
+
+    doc.add_page_break()
+
     # ── Inspection frequency ───────────────────────────────────
     doc.add_heading("Inspection Frequency", level=1)
     freq_df = records_df.groupby("Asset ID").agg(
@@ -1485,8 +1512,12 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
                     note_p = doc.add_paragraph()
                     _note_txt = str(rec["Reviewer Notes"])
                     _reason_txt, _, _remarks_txt = _note_txt.partition(REMARKS_SEP)
-                    note_p.add_run("Reviewer Notes: ").bold = True
-                    note_p.add_run(_reason_txt)
+                    if _reason_txt.startswith("Reason: "):
+                        note_p.add_run("Review Reason: ").bold = True
+                        note_p.add_run(_reason_txt[len("Reason: "):])
+                    else:
+                        note_p.add_run("Reviewer Notes: ").bold = True
+                        note_p.add_run(_reason_txt)
                     if _remarks_txt:
                         rem_p = doc.add_paragraph()
                         rem_p.add_run("Additional remarks: ").bold = True
@@ -1836,7 +1867,10 @@ def _tab_export(supabase):
             if defect in PHYSICS_KB and defect not in ("none", "unknown"):
                 kb = PHYSICS_KB.get(defect)
                 if kb and kb.get("omm_action"):
-                    physics_action = kb["omm_action"].strip()
+                    physics_action = kb["omm_action"].strip().replace(
+                        "based on the wear severity table below:",
+                        "based on the OMM wear severity table (see Wear Severity Reference).",
+                    )
 
             rows.append({
                 "Session ID":        rec.get("session_id", ""),
