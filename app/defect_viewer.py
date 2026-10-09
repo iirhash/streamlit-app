@@ -1372,9 +1372,13 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
     doc.add_heading("Summary", level=1)
     abnormal_count    = len(records_df[records_df["Abnormal Defect"] == "YES"])
     avg_conf          = records_df["Confidence (%)"].mean()
-    confirmed_df      = records_df[records_df["Verdict"] == "Confirmed"]
-    auto_confirmed    = len(confirmed_df[confirmed_df["Reviewer Notes"].str.startswith("Auto-confirmed", na=False)])
-    manually_reviewed = len(confirmed_df[~confirmed_df["Reviewer Notes"].str.startswith("Auto-confirmed", na=False)])
+    _is_auto          = records_df["Reviewer Notes"].str.startswith("Auto-confirmed", na=False)
+    _is_reviewed      = records_df["Status"] == "Reviewed"
+    _is_recorded      = records_df["Status"].str.startswith("Recorded", na=False)
+    auto_confirmed    = int((_is_reviewed & _is_auto).sum())
+    manually_reviewed = int((_is_reviewed & ~_is_auto).sum())
+    recorded_only     = int(_is_recorded.sum())
+    pending_review    = len(records_df) - auto_confirmed - manually_reviewed - recorded_only
 
     summary_data = [
         ("Total Captures",      str(records_df["Session ID"].nunique())),
@@ -1384,7 +1388,10 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
         ("Abnormal Defects",    str(abnormal_count)),
         ("Auto-Confirmed",      f"{auto_confirmed} (system ≥85% threshold)"),
         ("Manually Reviewed",   f"{manually_reviewed} (human verification)"),
+        ("Recorded, No Review Needed", f"{recorded_only} (scuff marks below 50%)"),
     ]
+    if pending_review > 0:
+        summary_data.append(("Pending Review", f"{pending_review} (awaiting IC verification)"))
 
     summary_table = doc.add_table(rows=len(summary_data), cols=2)
     summary_table.style = "Table Grid"
@@ -1403,6 +1410,18 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
             set_cell_bg(row.cells[1], "F0FDF4")
         if label == "Manually Reviewed":
             set_cell_bg(row.cells[1], "DBEAFE")
+        if label == "Pending Review":
+            set_cell_bg(row.cells[1], "FEF3C7")
+
+    if recorded_only > 0:
+        rec_note = doc.add_paragraph(
+            "ℹ️ Recorded, No Review Needed: scuff marks below 50% confidence are logged for the "
+            "inspection history but are not sent for IC review. Scuff marks have minimal impact on "
+            "collector shoe condition, so review effort is focused on wear, which drives rotation "
+            "and replacement decisions."
+        )
+        rec_note.runs[0].font.size = Pt(9)
+        rec_note.runs[0].font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
 
     doc.add_page_break()
 
