@@ -198,6 +198,63 @@ def _build_asset_id():
     return f"CS-{lrv_num}-{side_char}{cab_end}{position}"
 
 
+def _discard_local_frames():
+    """Deletes any locally saved captures from an unfinished session."""
+    for lp in st.session_state.get("mc_captured_frames", []) or []:
+        try:
+            os.remove(lp)
+        except OSError:
+            pass
+    st.session_state["mc_captured_frames"] = []
+
+
+def _commit_session(supabase, asset_id, tech_name):
+    """Runs the deferred Supabase writes once all captures are taken:
+    shoe registration (Case A), rotation confirmation (Case C) and the
+    inspection session. Returns the new session id, or None on failure."""
+    pending = st.session_state.get("mc_pending") or {}
+
+    reg = pending.get("register")
+    if reg:
+        try:
+            from datetime import date
+            supabase.table("collector_shoes").insert(
+                {**reg, "registered_at": date.today().isoformat()}
+            ).execute()
+        except Exception as e:
+            if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
+                st.error(f"Registration failed: {e}")
+                return None
+
+    if pending.get("confirm_rotation"):
+        try:
+            # RPC — anon cannot UPDATE collector_shoes directly (RLS)
+            rot_resp = supabase.rpc("confirm_shoe_rotation", {"p_shoe_id": asset_id}).execute()
+            if rot_resp.data is not True:
+                st.warning("⚠️ Rotation was not recorded — the shoe may no longer be pending rotation. Please inform your IC.")
+        except Exception as e:
+            st.error(f"Could not update rotation status: {e}")
+            return None
+
+    try:
+        session_resp = supabase.table("inspection_sessions").insert({
+            "technician_name": tech_name,
+            "employee_id":     "N/A",
+            "asset_id":        asset_id,
+            "status":          "submitted",
+            "notes":           "Captured via Mobile Capture Station (phone camera) — 3-angle inspection",
+        }).execute()
+    except Exception as e:
+        st.error(f"Session creation failed: {e}")
+        return None
+    if not session_resp.data:
+        st.error("Could not create session. Check RLS policies.")
+        return None
+
+    st.session_state["mc_pending"] = None
+    return session_resp.data[0]["id"]
+
+
 def show():
     st.markdown("## 📱 Mobile Capture Station")
     st.caption("Use your phone camera to capture collector shoe inspection photos directly in the browser.")
@@ -377,58 +434,34 @@ def show():
                 if not tech_name.strip():
                     st.error("Please enter your technician name.")
                 else:
-                    # Handle registration / rotation update before starting
+                    # Nothing is written to Supabase yet — registration, rotation
+                    # confirmation and the inspection session are saved only when
+                    # all 3 captures are done. Cancelling therefore leaves no trace.
+                    pending_reg = None
                     if shoe_rec is None and condition is not None:
-                        # CASE A — register new shoe
-                        cond_clean = "new" if "New" in condition else "in_use"
-                        try:
-                            from datetime import date
-                            supabase.table("collector_shoes").insert({
-                                "shoe_id":               asset_id,
-                                "condition":             cond_clean,
-                                "lrv_asset_id":          asset_id.split("-")[1] if "-" in asset_id else asset_id,
-                                "baseline_thickness_mm": 16.0,
-                                "registered_at":         date.today().isoformat(),
-                                "rotation_status":       rotation_status,
-                                "notes":                 f"Registered at first inspection by {st.session_state.get('technician_name', tech_name.strip())}",
-                            }).execute()
-                        except Exception as e:
-                            if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
-                                st.error(f"Registration failed: {e}")
-                                st.stop()
-
-                    elif shoe_rec and shoe_rec.get("rotation_status") == "not_rotated" and rotation_status == "rotated_once":
-                        # CASE C — update rotation to rotated_once
-                        try:
-                            # RPC — anon cannot UPDATE collector_shoes directly (RLS)
-                            rot_resp = supabase.rpc("confirm_shoe_rotation", {"p_shoe_id": asset_id}).execute()
-                            if rot_resp.data is not True:
-                                st.warning("⚠️ Rotation was not recorded — the shoe may no longer be pending rotation. Please inform your IC.")
-                        except Exception as e:
-                            st.error(f"Could not update rotation status: {e}")
-                            st.stop()
-
-                    # Create inspection session in Supabase
-                    try:
-                        session_resp = supabase.table("inspection_sessions").insert({
-                            "technician_name": tech_name.strip(),
-                            "employee_id":     "N/A",
-                            "asset_id":        asset_id,
-                            "status":          "submitted",
-                            "notes":           "Captured via Mobile Capture Station (phone camera) — 3-angle inspection",
-                        }).execute()
-                        if not session_resp.data:
-                            st.error("Could not create session. Check RLS policies.")
-                        else:
-                            st.session_state["mc_session_id"]  = session_resp.data[0]["id"]
-                            st.session_state["mc_tech_name"]   = tech_name.strip()
-                            st.session_state["mc_asset_id"]    = asset_id
-                            st.session_state["mc_capture_num"] = 1
-                            st.session_state["mc_results"]     = []
-                            st.session_state["mc_state"]       = "capturing"
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Session creation failed: {e}")
+                        pending_reg = {
+                            "shoe_id":               asset_id,
+                            "condition":             "new" if "New" in condition else "in_use",
+                            "lrv_asset_id":          asset_id.split("-")[1] if "-" in asset_id else asset_id,
+                            "baseline_thickness_mm": 16.0,
+                            "rotation_status":       rotation_status,
+                            "notes":                 f"Registered at first inspection by {tech_name.strip()}",
+                        }
+                    confirm_rot = bool(
+                        shoe_rec and shoe_rec.get("rotation_status") == "not_rotated"
+                        and rotation_status == "rotated_once"
+                    )
+                    st.session_state["mc_pending"]         = {"register": pending_reg, "confirm_rotation": confirm_rot}
+                    st.session_state["mc_session_id"]      = None
+                    st.session_state["mc_tech_name"]       = tech_name.strip()
+                    st.session_state["mc_asset_id"]        = asset_id
+                    st.session_state["mc_capture_num"]     = 1
+                    st.session_state["mc_results"]         = []
+                    st.session_state["mc_captured_frames"] = []
+                    st.session_state["mc_camera_ready"]    = True
+                    st.session_state["mc_cam_retry"]       = 0
+                    st.session_state["mc_state"]           = "capturing"
+                    st.rerun()
 
         if st.button("← Back to Tips", use_container_width=True):
             st.session_state["mc_state"] = "tips"
@@ -464,11 +497,28 @@ def show():
 
         st.markdown(f"**Asset:** {asset_id}  |  **Technician:** {tech_name}")
 
-        # Phone camera input
-        photo = st.camera_input(
-            f"📸 Take photo — Capture {capture_num}/{TOTAL_CAPTURES}",
-            key=f"mc_camera_{capture_num}"
-        )
+        # Pause between angles so the browser fully releases the previous
+        # camera before a new one opens (opening too fast froze the camera
+        # and triggered the browser permission prompt).
+        if not st.session_state.get("mc_camera_ready", True):
+            st.success(f"✅ Capture {capture_num - 1}/{TOTAL_CAPTURES} saved.")
+            st.info("Move the phone to the angle shown above, then tap **Open Camera**.")
+            if st.button(f"📷 Open Camera — Capture {capture_num}/{TOTAL_CAPTURES}",
+                         type="primary", use_container_width=True):
+                st.session_state["mc_camera_ready"] = True
+                st.rerun()
+            photo = None
+        else:
+            retry = st.session_state.get("mc_cam_retry", 0)
+            photo = st.camera_input(
+                f"📸 Take photo — Capture {capture_num}/{TOTAL_CAPTURES}",
+                key=f"mc_camera_{capture_num}_{retry}"
+            )
+            if photo is None:
+                if st.button("🔄 Camera frozen or asking for permission? Tap to retry",
+                             use_container_width=True):
+                    st.session_state["mc_cam_retry"] = retry + 1
+                    st.rerun()
 
         if photo is not None:
             if st.button(f"✅ Use this photo — Capture {capture_num}/{TOTAL_CAPTURES}", type="primary", use_container_width=True):
@@ -484,11 +534,17 @@ def show():
                     st.session_state["mc_captured_frames"] = frames
 
                     if capture_num < TOTAL_CAPTURES:
-                        st.session_state["mc_capture_num"] = capture_num + 1
-                        st.success(f"✅ Capture {capture_num}/{TOTAL_CAPTURES} saved! Proceed to next angle.")
+                        st.session_state["mc_capture_num"]  = capture_num + 1
+                        st.session_state["mc_camera_ready"] = False
+                        st.session_state["mc_cam_retry"]    = 0
                         st.rerun()
                     else:
-                        # All captures done — run YOLO on all
+                        # All captures done — now save registration / rotation / session
+                        session_id = _commit_session(supabase, asset_id, tech_name)
+                        if session_id is None:
+                            st.stop()  # error already shown; photos kept so they can retry
+                        st.session_state["mc_session_id"] = session_id
+                        # Run YOLO on all captures
                         with st.spinner(f"Running YOLO on all {TOTAL_CAPTURES} captures..."):
                             all_success = True
                             for i, lp in enumerate(st.session_state.get("mc_captured_frames", [])):
@@ -510,9 +566,12 @@ def show():
                     st.error(f"❌ Could not process image. Please try again.")
 
         if st.button("❌ Cancel Session", use_container_width=True):
-            st.session_state["mc_state"] = "tips"
+            _discard_local_frames()
+            st.session_state["mc_state"]      = "tips"
             st.session_state["mc_session_id"] = None
+            st.session_state["mc_pending"]    = None
             st.rerun()
+        st.caption("Cancelling discards the photos taken so far. Nothing is saved until all 3 captures are done.")
 
     # ══════════════════════════════════════════════════════════
     # STATE 4: Session Complete
@@ -548,6 +607,7 @@ def show():
                 st.session_state["mc_session_id"]  = None
                 st.session_state["mc_capture_num"] = 1
                 st.session_state["mc_results"]     = []
+                st.session_state["mc_pending"]     = None
                 st.rerun()
         with col2:
             if st.button("🔍 View in Defect Viewer", use_container_width=True):
