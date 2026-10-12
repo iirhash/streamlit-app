@@ -196,6 +196,32 @@ def _get_roboflow_model_id():
 _last_load_error = ""
 
 
+class _RoboflowHTTPModel:
+    """Fallback: calls Roboflow's hosted detect endpoint directly when the
+    roboflow package returns no model object. Same predict(...).json() shape."""
+    def __init__(self, model_id):
+        self.url = f"https://detect.roboflow.com/{model_id}"
+
+    def predict(self, image_path, confidence=20, overlap=30):
+        import base64, requests
+        with open(image_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("ascii")
+        resp = requests.post(
+            self.url,
+            params={"api_key": ROBOFLOW_API_KEY, "confidence": confidence, "overlap": overlap},
+            data=img_b64,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        class _Res:
+            def json(self_inner):
+                return data
+        return _Res()
+
+
 def load_model():
     global _model_cache, _last_load_error
 
@@ -210,6 +236,9 @@ def load_model():
             project, version = model_id.rsplit("/", 1)
             rf      = Roboflow(api_key=ROBOFLOW_API_KEY)
             model   = rf.workspace(ROBOFLOW_WORKSPACE).project(project).version(int(version)).model
+            if model is None:
+                log.warning(f"roboflow package gave no model for {model_id} — using direct HTTP endpoint")
+                model = _RoboflowHTTPModel(model_id)
             _model_cache[MODEL_PATH] = model
             log.info(f"Roboflow model ready: {model_id}")
             return model
