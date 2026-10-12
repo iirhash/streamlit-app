@@ -100,7 +100,8 @@ def _run_pipeline(supabase, image_bytes, asset_id, technician_name, session_id, 
             return False, "Could not process image"
 
     try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Microseconds so 3 captures processed in the same second get unique file names
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         # Upload raw image
         raw_path = f"{asset_id}/{session_id}/{timestamp}_raw.jpg"
@@ -113,6 +114,11 @@ def _run_pipeline(supabase, image_bytes, asset_id, technician_name, session_id, 
         # Run YOLO
         result         = detect_defects(local_path)
         annotated_path = None
+
+        if result.get("error"):
+            # Do not log a false "No defect detected" when the AI call itself failed
+            os.remove(local_path)
+            return False, f"AI detection failed: {result['error']}"
 
         if result.get("error") is None and result.get("annotated") is not None:
             annotated_local = local_path.replace(".jpg", "_annotated.jpg")
@@ -547,6 +553,7 @@ def show():
                         # Run YOLO on all captures
                         with st.spinner(f"Running YOLO on all {TOTAL_CAPTURES} captures..."):
                             all_success = True
+                            errors = []
                             for i, lp in enumerate(st.session_state.get("mc_captured_frames", [])):
                                 success, result = _run_pipeline(
                                     supabase, None, asset_id, tech_name, session_id,
@@ -554,6 +561,8 @@ def show():
                                 )
                                 if not success:
                                     all_success = False
+                                    errors.append(f"Capture {i+1}: {result}")
+                        st.session_state["mc_errors"] = errors
                         st.session_state["mc_captured_frames"] = []
                         st.session_state["mc_results"].append({
                             "capture": capture_num,
@@ -580,6 +589,9 @@ def show():
         asset_id  = st.session_state["mc_asset_id"]
         tech_name = st.session_state["mc_tech_name"]
         results   = st.session_state["mc_results"]
+        errors    = st.session_state.get("mc_errors", [])
+        if errors:
+            st.error("⚠️ Some captures were not processed by the AI:\n\n" + "\n\n".join(errors))
 
         st.markdown(
             """<div style="background:#DCFCE7;border:2px solid #0A8A72;border-radius:12px;
@@ -588,7 +600,7 @@ def show():
             <div style="font-size:22px;font-weight:700;color:#166534;margin-top:8px;">
             Session Complete!</div>
             <div style="font-size:14px;color:#166534;margin-top:6px;">
-            All 3 captures saved to Supabase successfully.</div>
+            All 3 captures saved to Supabase.</div>
             </div>""",
             unsafe_allow_html=True
         )
