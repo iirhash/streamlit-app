@@ -193,8 +193,11 @@ def _get_roboflow_model_id():
     return MODEL_PATH.replace("roboflow:", "")
 
 
+_last_load_error = ""
+
+
 def load_model():
-    global _model_cache
+    global _model_cache, _last_load_error
 
     # Only use cache if model loaded successfully previously
     if MODEL_PATH in _model_cache and _model_cache[MODEL_PATH] is not None:
@@ -212,9 +215,11 @@ def load_model():
             return model
         except ImportError:
             log.error("roboflow not installed — run: pip install roboflow")
+            _last_load_error = "roboflow package not installed on the server"
             return None
         except Exception as e:
             log.error(f"Failed to initialise Roboflow model: {e}")
+            _last_load_error = f"Roboflow: {e}"
             return None
     else:
         try:
@@ -247,7 +252,7 @@ def detect_defects(image_path):
             "needs_review": True,
             "model_path":   MODEL_PATH,
             "model_info":   get_model_info(),
-            "error":        "Model not available",
+            "error":        f"Model not available ({_last_load_error or 'unknown reason'})",
         }
 
     if _is_roboflow_model():
