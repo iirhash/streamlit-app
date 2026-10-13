@@ -45,6 +45,11 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 capture_requested = threading.Event()
 stop_listening     = threading.Event()
 
+# Shoe registration / rotation answers from the setup popup.
+# Nothing is written to Supabase until all 3 captures are taken,
+# so cancelling mid-session leaves no shoe or session behind.
+PENDING_WRITES = {"register": None, "confirm_rotation": False}
+
 
 def sharpen_image(frame, strength=1.0):
     """
@@ -773,6 +778,8 @@ def _get_session_info_gui(supabase):
 
         # Check if we're in case A (new registration needed)
         shoe = _check_shoe_registration(asset)
+        PENDING_WRITES["register"]         = None
+        PENDING_WRITES["confirm_rotation"] = False
 
         if shoe is None:
             # CASE A — must register
@@ -788,32 +795,16 @@ def _get_session_info_gui(supabase):
             else:
                 rotation_status = "in_service"
 
-            try:
-                supabase.table("collector_shoes").insert({
-                    "shoe_id":               asset,
-                    "condition":             condition,
-                    "lrv_asset_id":          asset.split("-")[1] if "-" in asset else asset,
-                    "baseline_thickness_mm": 16.0,
-                    "registered_at":         date.today().isoformat(),
-                    "rotation_status":       rotation_status,
-                    "notes":                 f"Registered at first inspection by {name}",
-                }).execute()
-            except Exception as e:
-                if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
-                    messagebox.showerror("Error", f"Registration failed: {e}")
-                    return
+            # Saved later, after the 3rd capture
+            PENDING_WRITES["register"] = {
+                "condition":       condition,
+                "rotation_status": rotation_status,
+            }
 
         elif shoe.get("rotation_status") == "not_rotated":
-            # CASE C — update rotation if confirmed
+            # CASE C — saved later, after the 3rd capture
             if rot_var and rot_var.get() == "yes":
-                try:
-                    # RPC — anon cannot UPDATE collector_shoes directly (RLS)
-                    rot_resp = supabase.rpc("confirm_shoe_rotation", {"p_shoe_id": asset}).execute()
-                    if rot_resp.data is not True:
-                        messagebox.showwarning("Rotation not recorded", "The shoe may no longer be pending rotation. Please inform your IC.")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Could not update rotation status: {e}")
-                    return
+                PENDING_WRITES["confirm_rotation"] = True
 
         result["technician_name"] = name
         result["asset_id"]        = asset
@@ -1091,6 +1082,65 @@ def _get_next_asset_gui(supabase, current_asset):
     return result["asset_id"] or current_asset
 
 
+def _commit_session(supabase, asset_id, technician_name):
+    """Runs the deferred Supabase writes once all captures are taken:
+    shoe registration, rotation confirmation, then the session row.
+    Returns the new session id, or None on failure."""
+    from datetime import date
+    reg = PENDING_WRITES.get("register")
+    if reg:
+        try:
+            supabase.table("collector_shoes").insert({
+                "shoe_id":               asset_id,
+                "condition":             reg["condition"],
+                "lrv_asset_id":          asset_id.split("-")[1] if "-" in asset_id else asset_id,
+                "baseline_thickness_mm": 16.0,
+                "registered_at":         date.today().isoformat(),
+                "rotation_status":       reg["rotation_status"],
+                "notes":                 f"Registered at first inspection by {technician_name}",
+            }).execute()
+            print(f"  → Shoe registered: {asset_id}")
+        except Exception as e:
+            if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
+                print(f"❌ Registration failed: {e}")
+                return None
+    if PENDING_WRITES.get("confirm_rotation"):
+        try:
+            # RPC — anon cannot UPDATE collector_shoes directly (RLS)
+            rot_resp = supabase.rpc("confirm_shoe_rotation", {"p_shoe_id": asset_id}).execute()
+            if rot_resp.data is not True:
+                print("⚠️  Rotation not recorded — the shoe may no longer be pending rotation. Please inform your IC.")
+        except Exception as e:
+            print(f"❌ Could not update rotation status: {e}")
+            return None
+    try:
+        session_resp = supabase.table("inspection_sessions").insert({
+            "technician_name": technician_name,
+            "employee_id":     "N/A",
+            "asset_id":        asset_id,
+            "status":          "submitted",
+            "notes":           "Captured via DJI camera station — 3-angle inspection",
+        }).execute()
+        if not session_resp.data:
+            print("❌ Could not create session — check RLS policies.")
+            return None
+    except Exception as e:
+        print(f"❌ Session creation failed: {e}")
+        return None
+    PENDING_WRITES["register"]         = None
+    PENDING_WRITES["confirm_rotation"] = False
+    return session_resp.data[0]["id"]
+
+
+def _discard_frames(captured_frames):
+    """Deletes locally saved captures from a cancelled session."""
+    for local_path, _ in captured_frames:
+        try:
+            os.remove(local_path)
+        except OSError:
+            pass
+
+
 def main():
     print("=" * 60)
     print("  DJI Camera Station — Technician Capture (no login)")
@@ -1198,20 +1248,7 @@ root.destroy()
             print(f"\n🔧 Starting new inspection — Asset ID = {asset_id}")
             print(f"📸 3 captures required: Left (15°) → Centre (0°) → Right (15°)")
 
-            # Create one shared session for all 3 captures
-            session_data = {
-                "technician_name": technician_name,
-                "employee_id":     "N/A",
-                "asset_id":        asset_id,
-                "status":          "submitted",
-                "notes":           "Captured via DJI camera station — 3-angle inspection",
-            }
-            session_resp = supabase.table("inspection_sessions").insert(session_data).execute()
-            if not session_resp.data:
-                print("❌ Could not create session. Please try again.")
-                continue
-            shared_session_id = session_resp.data[0]["id"]
-            print(f"  → Session ID: {shared_session_id}")
+            # Session is created only after all 3 captures (see Step 2)
 
             # ── Step 1: Capture all 3 frames first ────────────────
             TOTAL_CAPTURES  = 3
@@ -1227,7 +1264,11 @@ root.destroy()
                 triggered_by = _wait_for_trigger(cap, asset_id, capture_num, TOTAL_CAPTURES)
 
                 if triggered_by is None:
-                    print("⚠️  Session cancelled by user.")
+                    print("⚠️  Session cancelled by user — nothing saved.")
+                    _discard_frames(captured_frames)
+                    captured_frames = []
+                    PENDING_WRITES["register"]         = None
+                    PENDING_WRITES["confirm_rotation"] = False
                     session_cancelled = True
                     break
 
@@ -1254,6 +1295,16 @@ root.destroy()
                 print(f"  ✅ Capture {capture_num}/{TOTAL_CAPTURES} saved locally — proceeding to next angle")
 
             # ── Step 2: Run YOLO on all captured frames ────────────
+            shared_session_id = None
+            if not session_cancelled and captured_frames:
+                shared_session_id = _commit_session(supabase, asset_id, technician_name)
+                if shared_session_id is None:
+                    print("❌ Session not saved — photos discarded. Please start a new session.")
+                    _discard_frames(captured_frames)
+                    session_cancelled = True
+                else:
+                    print(f"  → Session ID: {shared_session_id}")
+
             if not session_cancelled and captured_frames:
                 print(f"\n🤖 Running YOLO on {len(captured_frames)} captured frame(s)...")
                 all_success = True
