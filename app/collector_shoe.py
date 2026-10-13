@@ -2012,7 +2012,11 @@ def _show_recent_sessions_log(supabase):
         # Render as a clean table
         display_df = sessions_df[["asset_id", "technician_name", "created_at", "defects_found"]].copy()
         display_df.columns = ["Shoe ID", "Inspector", "Date & Time", "Defects Found"]
-        display_df["Date & Time"] = display_df["Date & Time"].dt.strftime("%d %b %Y  %H:%M")
+        display_df["Date & Time"] = (
+            display_df["Date & Time"]
+            .dt.tz_convert("Asia/Singapore")
+            .dt.strftime("%d %b %Y  %H:%M SGT")
+        )
 
         st.dataframe(
             display_df,
