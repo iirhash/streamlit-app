@@ -36,7 +36,8 @@ from core.yolo_detect import detect_defects, CONFIDENCE_THRESHOLD, SCUFF_MARKS_T
 from white_balance_fix import gray_world_balance
 
 # ── RTMP stream settings ───────────────────────────────────────
-PC_IP            = "10.243.253.63"
+from core.network import get_local_ip
+PC_IP            = get_local_ip()   # laptop IP, detected automatically each time
 RTMP_PORT        = 1936
 STREAM_KEY       = "live/stream"
 RTMP_RECEIVE_URL = f"rtmp://{PC_IP}:{RTMP_PORT}/{STREAM_KEY}"
