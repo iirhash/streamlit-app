@@ -22,7 +22,38 @@ log = logging.getLogger(__name__)
 MODEL_PATH = "roboflow:piston-surface-defect-1-gjys9/11"
 
 # ── Roboflow API settings ──────────────────────────────────────
-ROBOFLOW_API_KEY = "f2JiQ0Vkd0JRIDZ8UP5a"
+# Key is NOT stored in code. It is read from:
+#   - laptop / camera stations: the .env file in the project folder
+#       ROBOFLOW_API_KEY=your_key_here
+#   - Streamlit Cloud: App settings -> Secrets
+#       ROBOFLOW_API_KEY = "your_key_here"
+try:
+    from pathlib import Path
+    from dotenv import load_dotenv
+    # Look for .env in the main project folder (one level above core/),
+    # then in the folder the program was started from.
+    _root_env = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(_root_env)
+    load_dotenv(Path.cwd() / ".env")
+except ImportError:
+    pass
+
+
+def _get_roboflow_key():
+    key = os.getenv("ROBOFLOW_API_KEY", "")
+    if not key:
+        try:
+            import streamlit as st
+            key = st.secrets.get("ROBOFLOW_API_KEY", "")
+        except Exception:
+            key = ""
+    if not key:
+        log.error("ROBOFLOW_API_KEY not set - add it to .env (laptop) "
+                  "or Streamlit Cloud Secrets (online app).")
+    return key
+
+
+ROBOFLOW_API_KEY = _get_roboflow_key()
 ROBOFLOW_API_URL = "https://serverless.roboflow.com"
 
 # Model metadata
