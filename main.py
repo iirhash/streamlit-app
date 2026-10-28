@@ -4,9 +4,11 @@
 
 import os
 import streamlit as st
-from core.network import get_local_ip
+from core.network import get_local_ip, is_cloud
 
-_LOCAL_IP = get_local_ip()
+# On Streamlit Cloud the "local IP" is the cloud server, not your laptop,
+# so show a generic hint there instead.
+_LOCAL_IP = "[your laptop IP]" if is_cloud() else get_local_ip()
 import time
 from datetime import datetime, timezone, timedelta
 
