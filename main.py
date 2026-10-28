@@ -4,6 +4,9 @@
 
 import os
 import streamlit as st
+from core.network import get_local_ip
+
+_LOCAL_IP = get_local_ip()
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -303,7 +306,7 @@ This ensures full surface coverage for the YOLO defect model.
 
 **Steps:**
 1. Power on the DJI Action 3 and connect it to the depot Wi-Fi network
-2. Open your phone browser and navigate to **`http://10.243.253.63:8501`** (depot local network — do NOT use the streamlit.app URL)
+2. Open your phone browser and navigate to **`http://__LOCAL_IP__:8501`** (this laptop's current local address — do NOT use the streamlit.app URL)
 3. Go to **🚀 Launch Camera Stations** → **📱 Launch from Mobile Device** → **📡 DJI Wireless Mobile Remote Capture**
 4. Enter the RTMP stream URL and click **Connect to Stream**
 5. Capture frames for each angle (Left 15°, Centre 0°, Right 15°) and submit
@@ -311,7 +314,7 @@ This ensures full surface coverage for the YOLO defect model.
 > ⚠️ **Before starting:** Ensure `rtmp_server.js` is running on the workstation (`node rtmp_server.js`). Ensure the DJI camera and your mobile device are on the same Wi-Fi network before opening this tab.
 
 > 📷 **DJI Mimo setup:** Refer to **Method 2** above for step-by-step screenshots on configuring the DJI Mimo app (select RTMP platform, enter stream URL, set 1080p UHD).
-        """)
+        """.replace("__LOCAL_IP__", _LOCAL_IP))
 
     st.markdown("---")
 
@@ -528,7 +531,7 @@ elif page == "🚀 Launch Camera Stations":
                 unsafe_allow_html=True
             )
             st.markdown(
-                "⚠️ **Use laptop's local IP address** (e.g. `http://10.243.253.63:8501`) — "
+                f"⚠️ **Use laptop's local IP address** (currently `http://{_LOCAL_IP}:8501`) — "
                 "do NOT use the Streamlit Community Cloud link. "
                 "The RTMP server must be running on the workstation."
             )
