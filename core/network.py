@@ -10,6 +10,11 @@ import os
 import socket
 
 
+def is_cloud():
+    """True when running on Streamlit Community Cloud (app lives in /mount/src)."""
+    return os.getcwd().startswith("/mount/src") or os.path.isdir("/mount/src")
+
+
 def get_local_ip():
     override = os.getenv("PC_IP", "").strip()
     if override:
