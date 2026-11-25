@@ -1754,6 +1754,8 @@ def _lrv_diagram_html(lrv_id, shoe_data):
 # ──────────────────────────────────────────────────────────────────────────────
 REPLACE_LIMIT_MM = 5.0
 ORIGINAL_DEPTH_MM = 16.0
+ROTATION_DRY_MM   = ROTATION_THRESHOLD_DRY    # 4 mm
+ROTATION_RAINY_MM = ROTATION_THRESHOLD_RAINY  # 3 mm
 
 
 @st.cache_data(ttl=60)
@@ -1804,6 +1806,30 @@ def _wear_card_html(row, prev_wear, rotation_mm):
     # position, and the filled part shows only the colours reached so far.
     bg_size = 100 * 100 / fill_pct if fill_pct > 0 else 100
 
+    # Scale marks at 3 mm (rainy rotation), 4 mm (dry rotation) and 5 mm (replace).
+    # The ACTIVE rotation mark is bold and coloured; the other is grey.
+    marks = [ROTATION_RAINY_MM, ROTATION_DRY_MM, REPLACE_LIMIT_MM]
+    ticks_html, scale_html = "", ""
+    for mm in marks:
+        pos = _pos(mm)
+        if mm == REPLACE_LIMIT_MM:
+            c, weight = SEVERITY_COLOR["severe"], 700
+        elif mm == rotation_mm:
+            c, weight = SEVERITY_COLOR["moderate"], 700
+        else:
+            c, weight = "#94A3B8", 500
+        ticks_html += (f'<div style="position:absolute;left:{pos}%;top:-4px;width:2px;height:16px;'
+                       f'background:{c};transform:translateX(-50%);"></div>')
+        align = "translateX(-100%)" if pos >= 99 else "translateX(-50%)"
+        text_align = "right" if pos >= 99 else "center"
+        scale_html += (f'<div style="position:absolute;left:{pos}%;transform:{align};text-align:{text_align};'
+                       f'font-size:13px;font-weight:{weight};color:{c};white-space:nowrap;">'
+                       f'{mm:g}</div>')
+    season = "rainy" if rotation_mm == ROTATION_RAINY_MM else "dry"
+    scale_html += (f'<div style="position:absolute;top:18px;left:0;right:0;font-size:11px;color:#64748B;white-space:nowrap;">'
+                   f'<b style="color:{SEVERITY_COLOR["moderate"]}">Rotate {rotation_mm:g} mm ({season})</b>'
+                   f' · <b style="color:{SEVERITY_COLOR["severe"]}">Replace {REPLACE_LIMIT_MM:g} mm</b></div>')
+
     # Action colour follows the ACTIVE rotation threshold (moves with the weather):
     #   red    : at or above the 5 mm replacement limit, OR 1 mm or more past
     #            the rotation threshold (rotation overdue)
@@ -1844,14 +1870,12 @@ def _wear_card_html(row, prev_wear, rotation_mm):
             <div class="shoe-card-row"><span class="shoe-card-label">Thickness left</span><span>{thick:g} mm of {ORIGINAL_DEPTH_MM:g}</span></div>
             <div class="wear-bar-bg" style="position:relative;height:8px;overflow:visible;margin-top:14px;">
                 <div class="wear-bar-fill" style="width:{fill_pct}%;height:8px;background:{gradient};background-size:{bg_size}% 100%;background-position:left;"></div>
+                {ticks_html}
                 <div title="{wear:g} mm" style="position:absolute;top:50%;left:{fill_pct}%;transform:translate(-50%,-50%);
                      width:16px;height:16px;border-radius:50%;background:{a_color};
                      border:3px solid white;box-shadow:0 0 0 1px {a_color},0 1px 4px rgba(0,0,0,0.25);"></div>
             </div>
-            <div style="position:relative;height:14px;font-size:10px;color:#94A3B8;">
-                <span style="position:absolute;left:{rot_pct}%;transform:translateX(-50%);">▲ {rotation_mm:g}</span>
-                <span style="position:absolute;right:0;">5 mm</span>
-            </div>
+            <div style="position:relative;height:36px;margin-top:2px;">{scale_html}</div>
             <div style="font-size:12px;font-weight:600;color:{a_color};margin-top:4px;">{action}</div>
             <hr class="shoe-card-divider">
             <div class="shoe-card-row"><span class="shoe-card-label">Change</span><span>{change}</span></div>
