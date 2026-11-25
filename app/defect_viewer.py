@@ -19,6 +19,8 @@ from core.yolo_detect import (
     ROBOFLOW_PROJECT
 )
 
+from core.wear_entry import SEVERITY_COLORS
+
 TEMP_DIR = "temp"
 SESSIONS_PER_PAGE = 5  # Number of capture sessions per page
 
@@ -39,6 +41,54 @@ def load_defect_records(_supabase, reviewed=None, limit=200):
         return query.execute().data or []
     except:
         return []
+
+# ── Depth gauge readings (one per inspection session) ──────────
+@st.cache_data(ttl=30)
+def _load_wear_by_session(_supabase, session_ids):
+    """Returns {session_id: {wear_mm, thickness_mm, severity}} for the given sessions.
+    session_ids must be a tuple (hashable for caching)."""
+    ids = [s for s in session_ids if s]
+    if not ids:
+        return {}
+    out = {}
+    try:
+        for i in range(0, len(ids), 100):   # keep the URL short
+            r = _supabase.table("shoe_physical_inspections") \
+                .select("session_id, wear_mm, thickness_mm, physical_severity") \
+                .in_("session_id", ids[i:i + 100]).execute()
+            for row in (r.data or []):
+                wear = row.get("wear_mm")
+                if wear is None and row.get("thickness_mm") is not None:
+                    wear = round(16.0 - float(row["thickness_mm"]), 2)
+                out[row["session_id"]] = {
+                    "wear_mm":      float(wear) if wear is not None else None,
+                    "thickness_mm": row.get("thickness_mm"),
+                    "severity":     row.get("physical_severity") or "none",
+                }
+    except Exception:
+        pass
+    return out
+
+
+def _show_gauge_line(wear_info):
+    """Compact severity-coloured line showing the depth gauge reading for a session."""
+    if not wear_info or wear_info.get("wear_mm") is None:
+        st.caption("📏 Gauge: no depth reading recorded for this capture")
+        return
+    sev   = wear_info["severity"]
+    color = SEVERITY_COLORS.get(sev, "#64748B")
+    thick = wear_info.get("thickness_mm")
+    thick_txt = f" · {float(thick):g} mm thickness left" if thick is not None else ""
+    st.markdown(
+        f"""<div style="background:{color}14;border-left:4px solid {color};border-radius:6px;
+        padding:6px 12px;margin:6px 0;font-size:14px;color:#1E293B;">
+        📏 <b>Gauge:</b> {wear_info['wear_mm']:g} mm worn
+        <span style="display:inline-block;background:{color};color:white;border-radius:10px;
+        padding:1px 9px;font-size:11px;font-weight:700;margin-left:6px;">{sev.upper()}</span>
+        <span style="color:#64748B;font-size:12px;">{thick_txt}</span></div>""",
+        unsafe_allow_html=True,
+    )
+
 
 # ── Singapore Time helper ──────────────────────────────────────
 def _to_sgt(ts_str):
@@ -608,6 +658,7 @@ def _delete_record(supabase, rec_id, raw_path, annotated_path, session_id):
             st.success("✅ No detections currently need review — all results are above the confidence threshold or have been reviewed.")
             return
         st.caption(f"{len(filtered_data)} detection(s) pending review")
+        wear_map = _load_wear_by_session(supabase, tuple(sorted({r.get("session_id") for r in filtered_data if r.get("session_id")})))
         for rec in filtered_data:
             session_info = rec.get("inspection_sessions") or {}
             asset_id  = session_info.get("asset_id", "Unknown")
@@ -625,6 +676,7 @@ def _delete_record(supabase, rec_id, raw_path, annotated_path, session_id):
                         f"{DEFECT_EMOJI.get(defect, '🔍')} `{defect}` at **{conf:.0%}** confidence  \n"
                         f"🕐 {timestamp}"
                     )
+                    _show_gauge_line(wear_map.get(rec.get("session_id")))
                 with col2:
                     st.markdown(
                         f"""<div style="background:#FEF3C7;border:1px solid #F59E0B;
@@ -729,6 +781,7 @@ def _tab_review_queue(supabase):
             st.success("✅ No detections currently need review — all results are above the confidence threshold or have been reviewed.")
             return
         st.caption(f"{len(filtered_data)} detection(s) pending review")
+        wear_map = _load_wear_by_session(supabase, tuple(sorted({r.get("session_id") for r in filtered_data if r.get("session_id")})))
         for rec in filtered_data:
             session_info = rec.get("inspection_sessions") or {}
             asset_id  = session_info.get("asset_id", "Unknown")
@@ -746,6 +799,7 @@ def _tab_review_queue(supabase):
                         f"{DEFECT_EMOJI.get(defect, '🔍')} `{defect}` at **{conf:.0%}** confidence  \n"
                         f"🕐 {timestamp}"
                     )
+                    _show_gauge_line(wear_map.get(rec.get("session_id")))
                 with col2:
                     st.markdown(
                         f"""<div style="background:#FEF3C7;border:1px solid #F59E0B;
@@ -930,6 +984,8 @@ def _tab_reviewed(supabase):
         end_idx   = min(start_idx + SESSIONS_PER_PAGE, total_sessions)
         page_sessions = session_order[start_idx:end_idx]
 
+        wear_map = _load_wear_by_session(supabase, tuple(sorted(s for s in page_sessions if s)))
+
         VERDICT_DISPLAY = {
             "confirmed":      "✅ Confirmed defect",
             "false_positive": "❌ False positive",
@@ -950,6 +1006,7 @@ def _tab_reviewed(supabase):
                 col1, col2 = st.columns([4, 1])
                 with col1:
                     st.markdown(f"**Asset:** {asset_id}  |  **Technician:** {tech_name}")
+                    _show_gauge_line(wear_map.get(sid))
                     for r in recs:
                         defect  = r.get("defect_type", "none")
                         conf    = r.get("confidence", 0)
@@ -1125,6 +1182,7 @@ def _tab_recent(supabase):
     start_idx = page * SESSIONS_PER_PAGE
     end_idx   = min(start_idx + SESSIONS_PER_PAGE, total_sessions)
     page_sessions = session_order[start_idx:end_idx]
+    wear_map = _load_wear_by_session(supabase, tuple(sorted(s for s in page_sessions if s)))
 
     for sid in page_sessions:
         recs = sessions[sid]
@@ -1148,6 +1206,7 @@ def _tab_recent(supabase):
                 st.markdown(
                     f"**Asset:** {asset_id}  |  **Technician:** {tech_name}  |  **Detected:** {timestamp}"
                 )
+                _show_gauge_line(wear_map.get(sid))
                 for r in recs:
                     defect       = r.get("defect_type", "none")
                     conf         = r.get("confidence", 0)
@@ -1302,6 +1361,9 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
         shd.set(qn("w:color"), "auto")
         shd.set(qn("w:fill"),  hex_color)
         tcPr.append(shd)
+
+    # Light background per gauge severity (same family as the severity colours)
+    GAUGE_BG = {"none": "F0FDF4", "minor": "FEF3C7", "moderate": "FFEDD5", "severe": "FEE2E2"}
 
     def add_horizontal_rule(doc):
         p   = doc.add_paragraph()
@@ -1497,6 +1559,27 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
                 continue
             first_rec = session_df.iloc[0]
             doc.add_heading(f"{first_rec['Detected (SGT)']}", level=2)
+
+            # Depth gauge reading for this capture, shaded in the severity colour
+            g_wear = first_rec.get("Gauge Wear (mm)")
+            g_sev  = str(first_rec.get("Gauge Severity", "Not recorded"))
+            g_tbl  = doc.add_table(rows=1, cols=2)
+            g_tbl.style = "Table Grid"
+            g_tbl.rows[0].cells[0].text = "Depth Gauge Reading"
+            set_cell_bg(g_tbl.rows[0].cells[0], "F8FAFC")
+            if g_tbl.rows[0].cells[0].paragraphs[0].runs:
+                g_tbl.rows[0].cells[0].paragraphs[0].runs[0].font.bold = True
+            g_cell = g_tbl.rows[0].cells[1]
+            if g_wear is not None and g_wear == g_wear:   # not None / NaN
+                g_cell.text = f"{float(g_wear):g} mm worn — {g_sev} ({16 - float(g_wear):g} mm thickness left)"
+                g_hex = SEVERITY_COLORS.get(g_sev.lower(), "#64748B").lstrip("#")
+                set_cell_bg(g_cell, GAUGE_BG.get(g_sev.lower(), "F8FAFC"))
+                if g_cell.paragraphs[0].runs:
+                    g_cell.paragraphs[0].runs[0].font.bold = True
+                    g_cell.paragraphs[0].runs[0].font.color.rgb = RGBColor.from_string(g_hex.upper())
+            else:
+                g_cell.text = "Not recorded"
+            doc.add_paragraph()
 
             for _, rec in session_df.iterrows():
                 details = [
@@ -1805,7 +1888,8 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
         "This report is generated automatically by the LRV Collector Shoe Visual Inspection System. "
         "Confidence scores reflect the YOLO v11 model's visual assessment and should be verified "
         "against physical depth gauge measurements before maintenance decisions are made. "
-        "Physical measurements remain the ground truth for wear severity classification."
+        "Physical measurements remain the ground truth for wear severity classification. "
+        "Depth gauge readings shown in this report were entered by the technician at the camera station."
     )
     disclaimer.runs[0].font.size = Pt(9)
     disclaimer.runs[0].font.color.rgb = RGBColor(0x64, 0x74, 0x8B)
@@ -1910,6 +1994,13 @@ def _tab_export(supabase):
 
         df = pd.DataFrame(rows)
 
+        # Depth gauge reading for each session (one per capture)
+        wear_map = _load_wear_by_session(supabase, tuple(sorted(s for s in df["Session ID"].unique() if s)))
+        df["Gauge Wear (mm)"] = df["Session ID"].map(
+            lambda s: wear_map.get(s, {}).get("wear_mm") if s in wear_map else None)
+        df["Gauge Severity"] = df["Session ID"].map(
+            lambda s: wear_map[s]["severity"].title() if s in wear_map else "Not recorded")
+
         # Apply filters
         if defect_filter != "All":
             df = df[df["Defect Type"] == defect_filter]
@@ -1981,11 +2072,12 @@ def _tab_export(supabase):
         # ── SECTION 4: Full Audit Trail ────────────────────────
         st.markdown("---")
         st.markdown("**📋 Full Audit Trail**")
-        st.caption("Complete inspection log — technician, timestamp, defect, confidence, verdict and reviewer notes.")
+        st.caption("Complete inspection log — technician, timestamp, defect, confidence, depth gauge reading, verdict and reviewer notes.")
 
         display_cols = [
             "Asset ID", "Technician", "Defect Type", "Abnormal Defect",
-            "Confidence (%)", "Status", "Verdict", "Reviewer Notes", "Detected (SGT)"
+            "Confidence (%)", "Gauge Wear (mm)", "Gauge Severity",
+            "Status", "Verdict", "Reviewer Notes", "Detected (SGT)"
         ]
         st.dataframe(df[display_cols], hide_index=True, height=300)
 
@@ -2279,6 +2371,7 @@ def show():
                         rev_sessions[sid].append(rec)
 
                     st.caption(f"{len(rev_session_order)} capture(s) awaiting IC verification")
+                    wear_map = _load_wear_by_session(supabase_anon, tuple(sorted(s for s in rev_session_order if s)))
 
                     for sid in rev_session_order:
                         recs = rev_sessions[sid]
@@ -2295,6 +2388,7 @@ def show():
                                 st.markdown(
                                     f"**Asset:** {asset_id}  |  **Technician:** {tech_name}  |  **Detected:** {timestamp}"
                                 )
+                                _show_gauge_line(wear_map.get(sid))
                                 for r in recs:
                                     defect = r.get("defect_type", "none")
                                     conf   = r.get("confidence", 0)
