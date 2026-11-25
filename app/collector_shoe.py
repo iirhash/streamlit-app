@@ -1857,28 +1857,30 @@ def _show_physical_wear(supabase, shoes_df, rotation_mm):
             st.info(f"No depth gauge readings for {lrv_filter} yet.")
             return
 
-    # ── Latest reading per shoe (cards) ────────────────────────
     shoes = sorted(df["shoe_id"].unique())
-    per_row = 4
-    for start in range(0, len(shoes), per_row):
-        cols = st.columns(per_row)
-        for col, shoe in zip(cols, shoes[start:start + per_row]):
+
+    # Shoe picker drives both the card (left) and the chart (right)
+    sel = st.selectbox("Select shoe", shoes + ["All shoes"], key="wear_trend_shoe")
+    show_shoes = shoes if sel == "All shoes" else [sel]
+
+    card_col, chart_col = st.columns([1, 2.6], gap="medium")
+
+    # ── Latest reading card(s) ─────────────────────────────────
+    with card_col:
+        for shoe in show_shoes:
             hist = df[df["shoe_id"] == shoe]
             latest = hist.iloc[-1]
             prev = float(hist.iloc[-2]["wear_mm"]) if len(hist) > 1 else None
-            with col:
-                st.markdown(_wear_card_html(latest, prev, rotation_mm), unsafe_allow_html=True)
+            st.markdown(_wear_card_html(latest, prev, rotation_mm), unsafe_allow_html=True)
 
-    # ── Wear over time (chart) ─────────────────────────────────
-    with st.expander("📈 Wear over time", expanded=True):
-        sel = st.selectbox("Select shoe", ["All"] + shoes, key="wear_trend_shoe")
-        plot_df = df if sel == "All" else df[df["shoe_id"] == sel]
-        plot_df = plot_df.copy()
+    # ── Wear over time chart ───────────────────────────────────
+    with chart_col:
+        plot_df = df[df["shoe_id"].isin(show_shoes)].copy()
         plot_df["measured"] = plot_df["inspected_at"].dt.tz_convert("Asia/Singapore")
 
         fig = px.line(
             plot_df, x="measured", y="wear_mm",
-            color="shoe_id" if sel == "All" else None,
+            color="shoe_id" if len(show_shoes) > 1 else None,
             markers=True,
             labels={"wear_mm": "Wear (mm)", "measured": "", "shoe_id": "Shoe"},
             hover_data={"physical_severity": True, "technician_name": True},
@@ -1888,8 +1890,9 @@ def _show_physical_wear(supabase, shoes_df, rotation_mm):
         fig.add_hline(y=REPLACE_LIMIT_MM, line_dash="dot", line_color="#C9382A",
                       annotation_text=f"Replace {REPLACE_LIMIT_MM:g} mm", annotation_position="right")
         fig.update_layout(
-            height=320,
-            margin=dict(l=0, r=110, t=10, b=0),
+            title=dict(text="Wear over time", font=dict(size=14)),
+            height=360,
+            margin=dict(l=0, r=110, t=40, b=0),
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             xaxis=dict(showgrid=False),
