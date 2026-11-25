@@ -1749,6 +1749,158 @@ def _lrv_diagram_html(lrv_id, shoe_data):
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Physical Wear — depth gauge readings (Tab 1)
+# ──────────────────────────────────────────────────────────────────────────────
+REPLACE_LIMIT_MM = 5.0
+ORIGINAL_DEPTH_MM = 16.0
+
+
+@st.cache_data(ttl=60)
+def load_wear_readings(_sb):
+    """All depth gauge readings from shoe_physical_inspections, oldest first."""
+    try:
+        r = _sb.table("shoe_physical_inspections") \
+            .select("shoe_id, wear_mm, thickness_mm, physical_severity, technician_name, inspected_at") \
+            .order("inspected_at", desc=False).execute()
+        if not r.data:
+            return pd.DataFrame()
+        df = pd.DataFrame(r.data)
+        # Older rows only had thickness — convert back to wear
+        df["wear_mm"] = pd.to_numeric(df["wear_mm"], errors="coerce")
+        df["thickness_mm"] = pd.to_numeric(df["thickness_mm"], errors="coerce")
+        df["wear_mm"] = df["wear_mm"].fillna(ORIGINAL_DEPTH_MM - df["thickness_mm"])
+        df["inspected_at"] = pd.to_datetime(df["inspected_at"], utc=True, format="ISO8601")
+        return df.dropna(subset=["wear_mm"])
+    except Exception:
+        return pd.DataFrame()
+
+
+def _wear_card_html(row, prev_wear, rotation_mm):
+    sev   = row["physical_severity"] or "none"
+    color = SEVERITY_COLOR.get(sev, "#64748B")
+    wear  = float(row["wear_mm"])
+    thick = float(row["thickness_mm"]) if pd.notna(row["thickness_mm"]) else ORIGINAL_DEPTH_MM - wear
+
+    # Progress towards the replacement limit, with a marker at the rotation trigger
+    fill_pct = min(100, wear / REPLACE_LIMIT_MM * 100)
+    rot_pct  = min(100, rotation_mm / REPLACE_LIMIT_MM * 100)
+
+    if wear >= REPLACE_LIMIT_MM:
+        action, a_color = "🔴 Replace — at or above 5 mm", "#C9382A"
+    elif wear >= rotation_mm:
+        action, a_color = f"🟠 Rotate — at or above {rotation_mm:g} mm", "#E85D04"
+    else:
+        left = rotation_mm - wear
+        action, a_color = f"🟢 {left:.1f} mm to rotation", "#166534"
+
+    if prev_wear is None:
+        change = "First reading"
+    else:
+        d = wear - prev_wear
+        change = f"{d:+.1f} mm since last reading"
+
+    when = row["inspected_at"].tz_convert("Asia/Singapore").strftime("%d %b %Y %H:%M")
+    tech = row.get("technician_name") or "—"
+
+    return f"""
+    <div class="shoe-card">
+        <div class="shoe-card-bar" style="background:{color}"></div>
+        <div class="shoe-card-body">
+            <div class="shoe-card-id">{row['shoe_id']}</div>
+            <div class="shoe-card-thickness">{wear:g}<span class="shoe-card-unit"> mm worn</span></div>
+            <div class="shoe-card-badge" style="background:{color};color:white;">{sev.upper()}</div>
+            <div class="shoe-card-row"><span class="shoe-card-label">Thickness left</span><span>{thick:g} mm of {ORIGINAL_DEPTH_MM:g}</span></div>
+            <div class="wear-bar-bg" style="position:relative;">
+                <div class="wear-bar-fill" style="width:{fill_pct}%;background:{color}"></div>
+            </div>
+            <div style="position:relative;height:14px;font-size:10px;color:#94A3B8;">
+                <span style="position:absolute;left:{rot_pct}%;transform:translateX(-50%);">▲ {rotation_mm:g}</span>
+                <span style="position:absolute;right:0;">5 mm</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:{a_color};margin-top:4px;">{action}</div>
+            <hr class="shoe-card-divider">
+            <div class="shoe-card-row"><span class="shoe-card-label">Change</span><span>{change}</span></div>
+            <div class="shoe-card-row"><span class="shoe-card-label">Measured</span><span>{when}</span></div>
+            <div class="shoe-card-row"><span class="shoe-card-label">By</span><span>{tech}</span></div>
+        </div>
+    </div>"""
+
+
+def _show_physical_wear(supabase, shoes_df, rotation_mm):
+    st.markdown('<div class="section-header">📏 Physical Wear — Depth Gauge Readings</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-intro">Wear depth measured with the depth gauge at each inspection (mm worn away). '
+        f'Rotation is due at {rotation_mm:g} mm (active threshold above) and replacement at {REPLACE_LIMIT_MM:g} mm. '
+        'Colours follow the severity bands: none &lt; 2 mm, minor 2–3.9 mm, moderate 4–4.9 mm, severe ≥ 5 mm.</div>',
+        unsafe_allow_html=True,
+    )
+
+    df = load_wear_readings(supabase)
+    if df.empty:
+        st.info("📭 No depth gauge readings yet. Readings are entered at the camera station after the 3rd photo.")
+        return
+
+    # Only registered shoes
+    if not shoes_df.empty:
+        df = df[df["shoe_id"].isin(shoes_df["shoe_id"])]
+    if df.empty:
+        st.info("📭 No depth gauge readings for registered shoes yet.")
+        return
+
+    # Follow the Fleet Status LRV filter if one is active
+    lrv_filter = st.session_state.get("fleet_filter_lrv")
+    if lrv_filter:
+        df = df[df["shoe_id"].str.startswith(f"CS-{lrv_filter}-")]
+        st.caption(f"Filtered to {lrv_filter} (Fleet Status filter).")
+        if df.empty:
+            st.info(f"No depth gauge readings for {lrv_filter} yet.")
+            return
+
+    # ── Latest reading per shoe (cards) ────────────────────────
+    shoes = sorted(df["shoe_id"].unique())
+    per_row = 4
+    for start in range(0, len(shoes), per_row):
+        cols = st.columns(per_row)
+        for col, shoe in zip(cols, shoes[start:start + per_row]):
+            hist = df[df["shoe_id"] == shoe]
+            latest = hist.iloc[-1]
+            prev = float(hist.iloc[-2]["wear_mm"]) if len(hist) > 1 else None
+            with col:
+                st.markdown(_wear_card_html(latest, prev, rotation_mm), unsafe_allow_html=True)
+
+    # ── Wear over time (chart) ─────────────────────────────────
+    with st.expander("📈 Wear over time", expanded=True):
+        sel = st.selectbox("Select shoe", ["All"] + shoes, key="wear_trend_shoe")
+        plot_df = df if sel == "All" else df[df["shoe_id"] == sel]
+        plot_df = plot_df.copy()
+        plot_df["measured"] = plot_df["inspected_at"].dt.tz_convert("Asia/Singapore")
+
+        fig = px.line(
+            plot_df, x="measured", y="wear_mm",
+            color="shoe_id" if sel == "All" else None,
+            markers=True,
+            labels={"wear_mm": "Wear (mm)", "measured": "", "shoe_id": "Shoe"},
+            hover_data={"physical_severity": True, "technician_name": True},
+        )
+        fig.add_hline(y=rotation_mm, line_dash="dash", line_color="#E85D04",
+                      annotation_text=f"Rotation {rotation_mm:g} mm", annotation_position="right")
+        fig.add_hline(y=REPLACE_LIMIT_MM, line_dash="dot", line_color="#C9382A",
+                      annotation_text=f"Replace {REPLACE_LIMIT_MM:g} mm", annotation_position="right")
+        fig.update_layout(
+            height=320,
+            margin=dict(l=0, r=110, t=10, b=0),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title="Wear (mm)",
+                       range=[0, max(6.0, float(plot_df["wear_mm"].max()) + 0.5)]),
+            legend=dict(orientation="h", y=-0.2),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("A drop in wear is expected only after a rotation or replacement.")
+
+
 def _show_last_inspected_summary(supabase):
     st.markdown('<div class="section-header">Last Inspected — Per Shoe</div>', unsafe_allow_html=True)
     st.markdown(
@@ -2096,6 +2248,11 @@ def show():
     if tab1:
         # ── Fleet Status ───────────────────────────────────────
         _show_fleet_status(fleet, shoes_df, daily_sel, supabase)
+
+        st.divider()
+
+        # ── Physical Wear (depth gauge) ────────────────────────
+        _show_physical_wear(supabase, shoes_df, active_threshold)
 
         st.divider()
 
