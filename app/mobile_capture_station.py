@@ -23,7 +23,7 @@ import io
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.login import get_supabase
-from core.wear_entry import parse_reading, check_reading, get_severity, get_last_reading, save_reading
+from core.wear_entry import parse_reading, check_reading, get_severity, get_last_reading, save_reading, severity_box_html
 from core.yolo_detect import detect_defects, CONFIDENCE_THRESHOLD, SCUFF_MARKS_THRESHOLD, get_status_label, increment_capture_count
 
 # ── LRV data ──────────────────────────────────────────────────
@@ -601,7 +601,8 @@ def show():
             elif check["level"] in ("check_again", "warn"):
                 st.warning("⚠️ " + check["message"])
             else:
-                st.info(f"Severity: **{get_severity(wear_mm)}**")
+                st.markdown(severity_box_html(f"{wear_mm:g} mm worn", get_severity(wear_mm)),
+                            unsafe_allow_html=True)
 
         # Re-measure / limit warnings must be confirmed before saving
         confirmed = True
@@ -623,7 +624,7 @@ def show():
             st.session_state["mc_session_id"] = session_id
 
             ok, msg = save_reading(supabase, asset_id, session_id, tech_name, wear_mm)
-            st.session_state["mc_wear_result"] = {"ok": ok, "msg": msg}
+            st.session_state["mc_wear_result"] = {"ok": ok, "msg": msg, "severity": get_severity(wear_mm)}
 
             with st.spinner(f"Running YOLO on all {TOTAL_CAPTURES} captures..."):
                 all_success = True
@@ -679,7 +680,8 @@ def show():
         wear_res = st.session_state.get("mc_wear_result")
         if wear_res:
             if wear_res["ok"]:
-                st.success("📏 " + wear_res["msg"])
+                st.markdown(severity_box_html("📏 " + wear_res["msg"], wear_res.get("severity", "none")),
+                            unsafe_allow_html=True)
             else:
                 st.error("📏 " + wear_res["msg"] + " — the photos are saved. Please ask your IC to add the reading.")
 
