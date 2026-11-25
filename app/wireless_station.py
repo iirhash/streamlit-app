@@ -8,6 +8,7 @@
 #   tips      → Capture tips (3-angle instructions)
 #   setup     → Technician name + Asset ID
 #   capturing → Capture 1/3, 2/3, 3/3
+#   measure   → Wear depth gauge reading (required) — then saved
 #   complete  → Session complete, option for new session
 # ─────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.login import get_supabase
+from core.wear_entry import parse_reading, check_reading, get_severity, get_last_reading, save_reading
 
 # ── Import from wireless station ──────────────────────────────
 try:
@@ -498,24 +500,10 @@ def show():
                     time.sleep(1)
                     st.rerun()
                 else:
-                    # All frames captured — now save shoe / rotation / session
-                    session_id = _commit_ws_session(supabase, asset_id, tech_name)
-                    if session_id is None:
-                        st.stop()  # error shown; photos kept so they can retry
-                    st.session_state["ws_session_id"] = session_id
-                    # Run YOLO on all
-                    with st.spinner(f"Running YOLO on all {TOTAL_CAPTURES} captures..."):
-                        success = _run_yolo_on_frames(
-                            supabase, asset_id, tech_name, session_id,
-                            st.session_state.get("ws_captured_frames", [])
-                        )
-                    st.session_state["ws_results"].append({
-                        "capture": capture_num,
-                        "angle":   angle,
-                        "success": success,
-                    })
-                    st.session_state["ws_captured_frames"] = []
-                    st.session_state["ws_state"] = "complete"
+                    # All 3 frames captured — ask for the wear reading next.
+                    # Nothing is saved until the reading is entered.
+                    st.session_state["ws_wear_input"] = ""
+                    st.session_state["ws_state"] = "measure"
                     st.rerun()
             else:
                 st.error(f"❌ Capture {capture_num} failed. Check the stream and try again.")
@@ -528,6 +516,101 @@ def show():
             st.session_state["ws_capture_num"] = 1
             st.rerun()
         st.caption("Cancelling discards the photos taken so far. Nothing is saved until all 3 captures are done.")
+
+    # ══════════════════════════════════════════════════════════
+    # STATE 4b: Wear depth reading (required)
+    # ══════════════════════════════════════════════════════════
+    elif state == "measure":
+        asset_id  = st.session_state["ws_asset_id"]
+        tech_name = st.session_state["ws_tech_name"]
+        pending   = st.session_state.get("ws_pending") or {}
+        reg       = pending.get("register")
+
+        # A new shoe or a shoe rotated in this session starts again,
+        # so a lower reading than last time is expected.
+        reset_baseline = bool(pending.get("confirm_rotation")) or \
+                         (reg is not None and reg.get("condition") == "new")
+        last_wear = None if reg else get_last_reading(supabase, asset_id)
+
+        st.markdown("### 📏 Wear Depth Reading")
+        st.progress(1.0)
+        st.markdown(f"**Asset:** {asset_id}  |  **Technician:** {tech_name}")
+        st.success("✅ All 3 photos taken. Measure the shoe with the depth gauge and enter the reading.")
+
+        if last_wear is not None:
+            st.caption(f"Last reading for this shoe: **{last_wear:g} mm** worn"
+                       + (" — shoe was rotated/replaced, a lower reading is expected." if reset_baseline else ""))
+        else:
+            st.caption("No previous reading for this shoe.")
+
+        text = st.text_input(
+            "Depth worn away (mm)",
+            key="ws_wear_input",
+            placeholder="e.g. 2.8",
+            help="Type the gauge reading: the depth worn away. A new shoe reads about 0 mm.",
+        )
+
+        wear_mm, err = parse_reading(text) if text.strip() else (None, None)
+        check = None
+        if err:
+            st.error(err)
+        elif wear_mm is not None:
+            check = check_reading(wear_mm, last_wear, reset_baseline)
+            if check["level"] == "reject":
+                st.error("🚫 " + check["message"])
+            elif check["level"] == "check_again":
+                st.warning("⚠️ " + check["message"])
+            elif check["level"] == "warn":
+                st.warning("⚠️ " + check["message"])
+            else:
+                st.info(f"Severity: **{get_severity(wear_mm)}**")
+
+        # Re-measure / limit warnings must be confirmed before saving
+        confirmed = True
+        if check and check["level"] in ("check_again", "warn"):
+            label = ("I have re-measured and this reading is correct"
+                     if check["level"] == "check_again"
+                     else "I understand and will inform my IC")
+            confirmed = st.checkbox(label, key="ws_wear_confirm")
+
+        can_save = (wear_mm is not None and check is not None
+                    and check["level"] != "reject" and confirmed)
+
+        if st.button("💾 Save Inspection", type="primary",
+                     disabled=not can_save, use_container_width=True):
+            # Save shoe / rotation / session, then the reading, then YOLO
+            session_id = _commit_ws_session(supabase, asset_id, tech_name)
+            if session_id is None:
+                st.stop()  # error shown; photos kept so they can retry
+            st.session_state["ws_session_id"] = session_id
+
+            ok, msg = save_reading(supabase, asset_id, session_id, tech_name, wear_mm)
+            st.session_state["ws_wear_result"] = {"ok": ok, "msg": msg}
+
+            with st.spinner(f"Running YOLO on all {TOTAL_CAPTURES} captures..."):
+                success = _run_yolo_on_frames(
+                    supabase, asset_id, tech_name, session_id,
+                    st.session_state.get("ws_captured_frames", [])
+                )
+            st.session_state["ws_results"].append({
+                "capture": TOTAL_CAPTURES,
+                "angle":   CAPTURE_ANGLES[TOTAL_CAPTURES - 1],
+                "success": success,
+            })
+            st.session_state["ws_captured_frames"] = []
+            st.session_state.pop("ws_wear_confirm", None)
+            st.session_state["ws_state"] = "complete"
+            st.rerun()
+
+        if st.button("❌ Cancel Session", use_container_width=True, key="ws_measure_cancel"):
+            _discard_ws_frames()
+            st.session_state.pop("ws_wear_confirm", None)
+            st.session_state["ws_state"]       = "connect"
+            st.session_state["ws_session_id"]  = None
+            st.session_state["ws_pending"]     = None
+            st.session_state["ws_capture_num"] = 1
+            st.rerun()
+        st.caption("The reading is required. Cancelling discards the 3 photos — nothing is saved.")
 
     # ══════════════════════════════════════════════════════════
     # STATE 5: Session Complete
@@ -550,6 +633,14 @@ def show():
         )
 
         st.markdown(f"**Asset:** {asset_id}  |  **Technician:** {tech_name}")
+
+        # Wear reading result
+        wear_res = st.session_state.get("ws_wear_result")
+        if wear_res:
+            if wear_res["ok"]:
+                st.success("📏 " + wear_res["msg"])
+            else:
+                st.error("📏 " + wear_res["msg"] + " — the photos are saved. Please ask your IC to add the reading.")
 
         # Results summary
         st.markdown("**Capture Summary:**")
