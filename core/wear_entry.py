@@ -25,6 +25,25 @@ SEVERITY_BANDS = [
 ]                        # >= 5 → severe
 
 
+# Same colours as the Shoe Health Monitor severity scheme (collector_shoe.py)
+SEVERITY_COLORS = {
+    "none":     "#0A8A72",
+    "minor":    "#E8920A",
+    "moderate": "#E85D04",
+    "severe":   "#C9382A",
+}
+
+
+def severity_box_html(text, severity):
+    """Coloured message box for Streamlit pages, using the severity colour."""
+    color = SEVERITY_COLORS.get(severity, "#64748B")
+    return (f'<div style="background:{color}1A;border:2px solid {color};border-radius:10px;'
+            f'padding:12px 16px;margin:8px 0;color:#1E293B;font-size:15px;">'
+            f'<span style="display:inline-block;background:{color};color:white;border-radius:10px;'
+            f'padding:2px 10px;font-size:12px;font-weight:700;margin-right:8px;">'
+            f'{severity.upper()}</span>{text}</div>')
+
+
 def get_severity(wear_mm):
     """Returns 'none', 'minor', 'moderate' or 'severe' for a wear reading."""
     for upper, label in SEVERITY_BANDS:
