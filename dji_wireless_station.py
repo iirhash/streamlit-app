@@ -34,6 +34,8 @@ from supabase import create_client
 from config.settings import SUPABASE_URL, SUPABASE_KEY
 from core.yolo_detect import detect_defects, CONFIDENCE_THRESHOLD, SCUFF_MARKS_THRESHOLD, get_status_label, increment_capture_count, RETRAIN_THRESHOLD
 from white_balance_fix import gray_world_balance
+from core.wear_entry import get_last_reading, save_reading
+from core.wear_entry_gui import ask_wear_reading
 
 # ── RTMP stream settings ───────────────────────────────────────
 from core.network import get_local_ip
@@ -1493,6 +1495,30 @@ def main():
                 captured_frames.append((local_path, timestamp))
                 print(f"  ✅ Capture {capture_num}/{TOTAL_CAPTURES} saved locally — proceeding to next angle")
 
+            # ── Step 1b: Wear depth reading (required) ─────────────
+            # Asked after the 3rd photo and BEFORE anything is saved.
+            # Cancelling here discards the photos, like Q in the preview.
+            wear_mm = None
+            if not session_cancelled and captured_frames:
+                reg = PENDING_WRITES.get("register")
+                # A new shoe or a shoe rotated in this session starts again,
+                # so a lower reading than last time is expected.
+                reset_baseline = bool(PENDING_WRITES.get("confirm_rotation")) or \
+                                 (reg is not None and reg.get("condition") == "new")
+                last_wear = None if reg else get_last_reading(supabase, asset_id)
+                print("\n📏 Enter the wear depth reading in the popup window...")
+                wear_mm = ask_wear_reading(asset_id, last_wear, reset_baseline,
+                                           header_color="#1A6FB5")
+                if wear_mm is None:
+                    print("⚠️  Wear reading cancelled — session discarded, nothing saved.")
+                    _discard_frames(captured_frames)
+                    captured_frames = []
+                    PENDING_WRITES["register"]         = None
+                    PENDING_WRITES["confirm_rotation"] = False
+                    session_cancelled = True
+                else:
+                    print(f"  ✅ Wear reading entered: {wear_mm} mm")
+
             # ── Step 2: Run YOLO on all captured frames ────────────
             shared_session_id = None
             if not session_cancelled and captured_frames:
@@ -1503,6 +1529,12 @@ def main():
                     session_cancelled = True
                 else:
                     print(f"  → Session ID: {shared_session_id}")
+                    # Save the wear reading, linked to this session
+                    ok, msg = save_reading(supabase, asset_id, shared_session_id,
+                                           technician_name, wear_mm)
+                    print(("  ✅ " if ok else "  ❌ ") + msg)
+                    if not ok:
+                        print("     The photos will still be saved. Please ask your IC to add the reading.")
 
             if not session_cancelled and captured_frames:
                 print(f"\n🤖 Running YOLO on {len(captured_frames)} captured frame(s)...")
