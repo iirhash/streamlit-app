@@ -1733,20 +1733,29 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
         import plotly.express as _px
         if "_detected_raw" in records_df.columns:
             sess_df = records_df.drop_duplicates(subset=["Session ID"]).copy()
-            sess_df["_detected_raw"] = pd.to_datetime(sess_df["_detected_raw"])
-            sess_df["Week"] = sess_df["_detected_raw"].dt.to_period("W").apply(lambda x: x.start_time)
+            # Group by week in Singapore time (weeks start on Monday)
+            sess_df["_detected_raw"] = pd.to_datetime(
+                sess_df["_detected_raw"], utc=True, format="ISO8601"
+            ).dt.tz_convert("Asia/Singapore").dt.tz_localize(None)
+            sess_df["Week"] = sess_df["_detected_raw"].dt.to_period("W-SUN").apply(lambda x: x.start_time)
             sess_week = sess_df.groupby("Week").size().reset_index(name="Sessions")
-            sess_week["Week"] = pd.to_datetime(sess_week["Week"])
-            fig_sess = _px.line(
-                sess_week, x="Week", y="Sessions", markers=True,
+            sess_week = sess_week.sort_values("Week")
+            # Text labels so a single week does not get stretched into a time axis
+            sess_week["Week Label"] = sess_week["Week"].apply(
+                lambda w: f"Week of {w:%d %b %Y} - {(w + pd.Timedelta(days=6)):%d %b %Y}")
+            fig_sess = _px.bar(
+                sess_week, x="Week Label", y="Sessions", text="Sessions",
                 color_discrete_sequence=["#0A8A72"],
             )
+            fig_sess.update_traces(textposition="outside", width=0.5 if len(sess_week) == 1 else None)
             fig_sess.update_layout(
                 height=300, width=600,
                 plot_bgcolor="white", paper_bgcolor="white",
                 margin=dict(l=60, r=20, t=30, b=60),
-                xaxis=dict(title=dict(text="Week", standoff=15)),
-                yaxis=dict(title=dict(text="Number of Sessions", standoff=15)),
+                xaxis=dict(title=dict(text="Week (Monday start, SGT)", standoff=15), type="category"),
+                yaxis=dict(title=dict(text="Number of Sessions", standoff=15),
+                           rangemode="tozero", dtick=1 if sess_week["Sessions"].max() <= 10 else None,
+                           range=[0, sess_week["Sessions"].max() * 1.25 + 0.5]),
             )
             img_bytes_sess = io.BytesIO(fig_sess.to_image(format="png", scale=2))
             p = doc.add_paragraph()
@@ -1756,7 +1765,7 @@ def _generate_word_report(supabase, records_df, date_from, date_to, progress_bar
             # Summary
             total_sess    = len(sess_df)
             avg_per_week  = round(sess_week["Sessions"].mean(), 1)
-            most_active   = sess_week.loc[sess_week["Sessions"].idxmax(), "Week"].strftime("Week of %d %b %Y")
+            most_active   = sess_week.loc[sess_week["Sessions"].idxmax(), "Week Label"]
             most_active_n = int(sess_week["Sessions"].max())
             summary_s = doc.add_paragraph()
             summary_s.add_run(
