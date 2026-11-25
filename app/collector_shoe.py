@@ -1842,8 +1842,11 @@ def _wear_card_html(row, prev_wear, rotation_mm):
             <div class="shoe-card-thickness">{wear:g}<span class="shoe-card-unit"> mm worn</span></div>
             <div class="shoe-card-badge" style="background:{color};color:white;">{sev.upper()}</div>
             <div class="shoe-card-row"><span class="shoe-card-label">Thickness left</span><span>{thick:g} mm of {ORIGINAL_DEPTH_MM:g}</span></div>
-            <div class="wear-bar-bg" style="position:relative;height:8px;">
+            <div class="wear-bar-bg" style="position:relative;height:8px;overflow:visible;margin-top:14px;">
                 <div class="wear-bar-fill" style="width:{fill_pct}%;height:8px;background:{gradient};background-size:{bg_size}% 100%;background-position:left;"></div>
+                <div title="{wear:g} mm" style="position:absolute;top:50%;left:{fill_pct}%;transform:translate(-50%,-50%);
+                     width:16px;height:16px;border-radius:50%;background:{a_color};
+                     border:3px solid white;box-shadow:0 0 0 1px {a_color},0 1px 4px rgba(0,0,0,0.25);"></div>
             </div>
             <div style="position:relative;height:14px;font-size:10px;color:#94A3B8;">
                 <span style="position:absolute;left:{rot_pct}%;transform:translateX(-50%);">▲ {rotation_mm:g}</span>
