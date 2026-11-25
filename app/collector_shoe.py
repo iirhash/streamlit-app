@@ -1786,13 +1786,26 @@ def _wear_card_html(row, prev_wear, rotation_mm):
     fill_pct = min(100, wear / REPLACE_LIMIT_MM * 100)
     rot_pct  = min(100, rotation_mm / REPLACE_LIMIT_MM * 100)
 
+    # Action colour follows the ACTIVE rotation threshold (moves with the weather):
+    #   red    : at or above the 5 mm replacement limit, OR 1 mm or more past
+    #            the rotation threshold (rotation overdue)
+    #   orange : at or above the rotation threshold
+    #   amber  : within 1 mm below the rotation threshold
+    #   green  : more than 1 mm below the rotation threshold
+    # Dry (4 mm): green <3, amber 3–3.9, orange 4–4.9, red 5+
+    # Rainy (3 mm): green <2, amber 2–2.9, orange 3–3.9, red 4+
+    left = rotation_mm - wear
     if wear >= REPLACE_LIMIT_MM:
-        action, a_color = "🔴 Replace — at or above 5 mm", "#C9382A"
+        action, a_color = "🔴 Replace — at or above 5 mm", SEVERITY_COLOR["severe"]
+    elif wear >= rotation_mm + 1.0:
+        action, a_color = (f"🔴 Rotation overdue — {REPLACE_LIMIT_MM - wear:.1f} mm to replace limit",
+                           SEVERITY_COLOR["severe"])
     elif wear >= rotation_mm:
-        action, a_color = f"🟠 Rotate — at or above {rotation_mm:g} mm", "#E85D04"
+        action, a_color = f"🟠 Rotate — at or above {rotation_mm:g} mm", SEVERITY_COLOR["moderate"]
+    elif wear >= rotation_mm - 1.0:
+        action, a_color = f"🟡 {left:.1f} mm to rotation — due soon", SEVERITY_COLOR["minor"]
     else:
-        left = rotation_mm - wear
-        action, a_color = f"🟢 {left:.1f} mm to rotation", "#166534"
+        action, a_color = f"🟢 {left:.1f} mm to rotation", SEVERITY_COLOR["none"]
 
     if prev_wear is None:
         change = "First reading"
