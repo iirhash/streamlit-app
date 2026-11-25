@@ -1786,6 +1786,24 @@ def _wear_card_html(row, prev_wear, rotation_mm):
     fill_pct = min(100, wear / REPLACE_LIMIT_MM * 100)
     rot_pct  = min(100, rotation_mm / REPLACE_LIMIT_MM * 100)
 
+    # Gradient along the bar (0 → 5 mm) in the severity colours. The colour
+    # points move with the active rotation threshold, so the bar turns amber
+    # 1 mm before rotation, orange at rotation and red 1 mm after it / at 5 mm.
+    def _pos(mm):
+        return max(0.0, min(100.0, mm / REPLACE_LIMIT_MM * 100))
+    gradient = (
+        "linear-gradient(90deg, "
+        f"{SEVERITY_COLOR['none']} 0%, "
+        f"{SEVERITY_COLOR['none']} {_pos(rotation_mm - 1.5):.0f}%, "
+        f"{SEVERITY_COLOR['minor']} {_pos(rotation_mm - 0.5):.0f}%, "
+        f"{SEVERITY_COLOR['moderate']} {_pos(rotation_mm + 0.5):.0f}%, "
+        f"{SEVERITY_COLOR['severe']} {_pos(min(rotation_mm + 1.0, REPLACE_LIMIT_MM)):.0f}%, "
+        f"{SEVERITY_COLOR['severe']} 100%)"
+    )
+    # Stretch the gradient to the FULL bar width so each colour sits at its mm
+    # position, and the filled part shows only the colours reached so far.
+    bg_size = 100 * 100 / fill_pct if fill_pct > 0 else 100
+
     # Action colour follows the ACTIVE rotation threshold (moves with the weather):
     #   red    : at or above the 5 mm replacement limit, OR 1 mm or more past
     #            the rotation threshold (rotation overdue)
@@ -1824,8 +1842,8 @@ def _wear_card_html(row, prev_wear, rotation_mm):
             <div class="shoe-card-thickness">{wear:g}<span class="shoe-card-unit"> mm worn</span></div>
             <div class="shoe-card-badge" style="background:{color};color:white;">{sev.upper()}</div>
             <div class="shoe-card-row"><span class="shoe-card-label">Thickness left</span><span>{thick:g} mm of {ORIGINAL_DEPTH_MM:g}</span></div>
-            <div class="wear-bar-bg" style="position:relative;">
-                <div class="wear-bar-fill" style="width:{fill_pct}%;background:{color}"></div>
+            <div class="wear-bar-bg" style="position:relative;height:8px;">
+                <div class="wear-bar-fill" style="width:{fill_pct}%;height:8px;background:{gradient};background-size:{bg_size}% 100%;background-position:left;"></div>
             </div>
             <div style="position:relative;height:14px;font-size:10px;color:#94A3B8;">
                 <span style="position:absolute;left:{rot_pct}%;transform:translateX(-50%);">▲ {rotation_mm:g}</span>
