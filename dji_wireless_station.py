@@ -603,7 +603,7 @@ def _show_capture_tips_gui(station_type="wireless"):
     root.attributes("-topmost", True)
     root.update_idletasks()
     root.after(200, lambda: [root.lift(), root.focus_force(), root.attributes("-topmost", True)])
-    w, h = 480, 420
+    w, h = 540, 460
     x = (root.winfo_screenwidth()  // 2) - (w // 2)
     y = (root.winfo_screenheight() // 2) - (h // 2)
     root.geometry(f"{w}x{h}+{x}+{y}")
@@ -650,8 +650,9 @@ def _show_capture_tips_gui(station_type="wireless"):
         tk.Label(
             row, text=tip,
             bg="#F8FAFC", fg="#1E293B",
-            font=("Calibri", 11), anchor="w", justify="left"
-        ).pack(side="left", fill="x")
+            font=("Calibri", 11), anchor="w", justify="left",
+            wraplength=w - 110,   # wrap long tips instead of cutting them off
+        ).pack(side="left", fill="x", expand=True)
 
     # ── Divider ────────────────────────────────────────────────
     tk.Frame(root, bg="#E2E8F0", height=1).pack(fill="x", padx=24)
@@ -686,6 +687,12 @@ def _show_capture_tips_gui(station_type="wireless"):
         relief="flat", padx=20, pady=10,
         cursor="hand2"
     ).pack(side="right")
+
+    # Grow the window if wrapped tips need more height
+    root.update_idletasks()
+    h = max(h, root.winfo_reqheight())
+    y = (root.winfo_screenheight() // 2) - (h // 2)
+    root.geometry(f"{w}x{h}+{x}+{y}")
 
     root.mainloop()
     return result["proceed"]
