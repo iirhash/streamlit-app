@@ -34,7 +34,7 @@ from supabase import create_client
 from config.settings import SUPABASE_URL, SUPABASE_KEY
 from core.yolo_detect import detect_defects, CONFIDENCE_THRESHOLD, SCUFF_MARKS_THRESHOLD, get_status_label, increment_capture_count, RETRAIN_THRESHOLD
 from white_balance_fix import gray_world_balance
-from core.wear_entry import get_last_reading, save_reading
+from core.wear_entry import get_last_reading, save_reading, get_rotation_trigger
 from core.wear_entry_gui import ask_wear_reading
 
 # ── RTMP stream settings ───────────────────────────────────────
@@ -1507,8 +1507,11 @@ def main():
                                  (reg is not None and reg.get("condition") == "new")
                 last_wear = None if reg else get_last_reading(supabase, asset_id)
                 print("\n📏 Enter the wear depth reading in the popup window...")
+                rot_mm, season = get_rotation_trigger()
+                print(f"  → Rotation limit today: {rot_mm:g} mm ({season})")
                 wear_mm = ask_wear_reading(asset_id, last_wear, reset_baseline,
-                                           header_color="#1A6FB5")
+                                           header_color="#1A6FB5",
+                                           rotation_trigger_mm=rot_mm, season_label=season)
                 if wear_mm is None:
                     print("⚠️  Wear reading cancelled — session discarded, nothing saved.")
                     _discard_frames(captured_frames)
