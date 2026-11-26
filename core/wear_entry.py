@@ -14,6 +14,7 @@
 # ── OMM engineering data ──────────────────────────────────────
 ORIGINAL_DEPTH_MM   = 16.0   # new shoe thickness
 ROTATION_TRIGGER_MM = 4.0    # dry (non-rainy) season default
+ROTATION_TRIGGER_RAINY_MM = 3.0   # rainy season (wet rails wear faster)
 REPLACE_LIMIT_MM    = 5.0
 MAX_WEAR_MM         = ORIGINAL_DEPTH_MM   # anything above this is impossible
 
@@ -42,6 +43,46 @@ def severity_box_html(text, severity):
             f'<span style="display:inline-block;background:{color};color:white;border-radius:10px;'
             f'padding:2px 10px;font-size:12px;font-weight:700;margin-right:8px;">'
             f'{severity.upper()}</span>{text}</div>')
+
+
+# ── Weather-based rotation trigger (same rule as the Shoe Health Monitor) ──
+# NEA 2-hour forecast for Sengkang (then Punggol). Rain / showers / thunder
+# → rainy-season trigger. Any error → dry default, so a station never stops
+# working because the weather service is down.
+NEA_FORECAST_URL = "https://api-open.data.gov.sg/v2/real-time/api/two-hr-forecast"
+NEA_TARGET_AREAS = ["sengkang", "punggol"]
+_WEATHER_CACHE = {"at": 0.0, "value": None}
+_WEATHER_TTL_S = 600   # 10 minutes
+
+
+def get_rotation_trigger():
+    """Returns (rotation_trigger_mm, label), e.g. (3.0, "rainy — Sengkang: Showers").
+    Cached for 10 minutes. Never raises."""
+    import time
+    now = time.time()
+    if _WEATHER_CACHE["value"] and now - _WEATHER_CACHE["at"] < _WEATHER_TTL_S:
+        return _WEATHER_CACHE["value"]
+    value = (ROTATION_TRIGGER_MM, "dry season (weather not available)")
+    try:
+        import requests
+        resp = requests.get(NEA_FORECAST_URL, timeout=5)
+        if resp.status_code == 200:
+            forecasts = (resp.json().get("data", {}).get("items", [{}])[0]
+                         .get("forecasts", []))
+            fmap = {f.get("area", "").lower(): f for f in forecasts}
+            for area in NEA_TARGET_AREAS:
+                if area in fmap:
+                    cond = fmap[area].get("forecast", "Fair")
+                    rainy = any(w in cond.lower() for w in ("rain", "shower", "thunder"))
+                    if rainy:
+                        value = (ROTATION_TRIGGER_RAINY_MM, f"rainy — {area.title()}: {cond}")
+                    else:
+                        value = (ROTATION_TRIGGER_MM, f"dry — {area.title()}: {cond}")
+                    break
+    except Exception:
+        pass
+    _WEATHER_CACHE.update(at=now, value=value)
+    return value
 
 
 def get_severity(wear_mm):
