@@ -12,7 +12,8 @@ from core.wear_entry import (
 
 
 def ask_wear_reading(asset_id, last_wear_mm=None, reset_baseline=False,
-                     header_color="#0A8A72", title="Wear Depth Reading"):
+                     header_color="#0A8A72", title="Wear Depth Reading",
+                     rotation_trigger_mm=ROTATION_TRIGGER_MM, season_label=None):
     """
     Opens a popup asking for the depth gauge reading (mm of wear).
     Returns the confirmed reading (float), or None if the technician
@@ -67,7 +68,10 @@ def ask_wear_reading(asset_id, last_wear_mm=None, reset_baseline=False,
     entry.pack(fill="x", pady=(6, 6), ipady=6)
     entry.focus()
 
-    status_var = tk.StringVar(value=f"Rotation at {ROTATION_TRIGGER_MM:g} mm · Replace at {REPLACE_LIMIT_MM:g} mm")
+    limits_txt = f"Rotation at {rotation_trigger_mm:g} mm · Replace at {REPLACE_LIMIT_MM:g} mm"
+    if season_label:
+        limits_txt += f"  ({season_label})"
+    status_var = tk.StringVar(value=limits_txt)
     status = tk.Label(body, textvariable=status_var, bg="#F8FAFC", fg="#64748B",
                       font=("Calibri", 10), anchor="w", wraplength=380, justify="left")
     status.pack(fill="x")
@@ -77,9 +81,9 @@ def ask_wear_reading(asset_id, last_wear_mm=None, reset_baseline=False,
         value, err = parse_reading(entry_var.get())
         if err or value is None:
             status.config(fg="#64748B")
-            status_var.set(f"Rotation at {ROTATION_TRIGGER_MM:g} mm · Replace at {REPLACE_LIMIT_MM:g} mm")
+            status_var.set(limits_txt)
             return
-        chk = check_reading(value, last_wear_mm, reset_baseline)
+        chk = check_reading(value, last_wear_mm, reset_baseline, rotation_trigger_mm)
         colour = {"reject": "#991B1B", "check_again": "#92400E",
                   "warn": "#92400E", "ok": "#166534"}[chk["level"]]
         status.config(fg=colour)
@@ -91,7 +95,7 @@ def ask_wear_reading(asset_id, last_wear_mm=None, reset_baseline=False,
         if err:
             messagebox.showwarning("Reading needed", err, parent=root)
             return
-        chk = check_reading(value, last_wear_mm, reset_baseline)
+        chk = check_reading(value, last_wear_mm, reset_baseline, rotation_trigger_mm)
         if chk["level"] == "reject":
             messagebox.showerror("Not possible", chk["message"], parent=root)
             return
