@@ -423,6 +423,24 @@ elif page == "🚀 Launch Camera Stations":
         st.markdown("### Launch a camera station on this workstation")
         st.caption("The station opens as a desktop window on the computer running Streamlit.")
 
+        # On Streamlit Cloud the app runs on a server with no screen, USB camera
+        # or microphone, so the desktop stations cannot open there.
+        try:
+            _on_cloud = bool(is_cloud())
+        except Exception:
+            _on_cloud = False
+        # Extra check: Streamlit Cloud runs the app from /mount/src
+        _on_cloud = _on_cloud or os.path.abspath(__file__).startswith("/mount/src")
+        if _on_cloud:
+            st.warning(
+                "🖥️ **Workstation stations only work on the laptop connected to the DJI camera.**\n\n"
+                "You are using the online dashboard, which runs on a cloud server — it cannot open "
+                "windows or use a USB camera on your computer.\n\n"
+                "**To use them:** on the laptop, open Anaconda Prompt in the project folder, run "
+                "`streamlit run main.py`, and launch from that page instead.\n\n"
+                "📱 To capture from this website, use the **Launch from Mobile Device** tab."
+            )
+
         ws_col1, ws_col2 = st.columns(2)
 
         with ws_col1:
@@ -441,7 +459,8 @@ elif page == "🚀 Launch Camera Stations":
                 "🚀 Wired Capture",
                 type="primary",
                 use_container_width=True,
-                key="launch_wired_ws"
+                key="launch_wired_ws",
+                disabled=_on_cloud,
             ):
                 try:
                     subprocess.Popen(
@@ -472,7 +491,8 @@ elif page == "🚀 Launch Camera Stations":
                 "🚀 Wireless Capture",
                 type="primary",
                 use_container_width=True,
-                key="launch_wireless_ws"
+                key="launch_wireless_ws",
+                disabled=_on_cloud,
             ):
                 try:
                     subprocess.Popen(
