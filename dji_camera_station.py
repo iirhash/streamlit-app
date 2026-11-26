@@ -1091,6 +1091,78 @@ def _get_next_asset_gui(supabase, current_asset):
     return result["asset_id"] or current_asset
 
 
+def _prepare_next_asset(supabase, asset_id):
+    """
+    Same registration checks as the setup window, for an asset chosen in the
+    "Next Asset" popup. Nothing is written here — answers go into
+    PENDING_WRITES and are saved after the 3rd capture (_commit_session).
+    Returns True to continue with this asset, False to pick another one.
+    """
+    import tkinter as tk
+    from tkinter import messagebox
+
+    PENDING_WRITES["register"]         = None
+    PENDING_WRITES["confirm_rotation"] = False
+
+    try:
+        r = supabase.table("collector_shoes") \
+            .select("shoe_id, rotation_status, condition") \
+            .eq("shoe_id", asset_id).execute()
+        shoe = r.data[0] if r.data else None
+    except Exception as e:
+        print(f"⚠️  Could not check registration for {asset_id}: {e}")
+        shoe = None
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        if shoe is None:
+            # CASE A — not registered: ask the same questions as the setup window
+            ans = messagebox.askyesnocancel(
+                "Shoe Not Registered",
+                f"{asset_id} is not registered yet.\n\n"
+                "Is the shoe at this position a NEW shoe?\n\n"
+                "Yes = New shoe\nNo = Already in use\nCancel = choose another asset",
+                parent=root)
+            if ans is None:
+                return False
+            if ans:
+                PENDING_WRITES["register"] = {"condition": "new", "rotation_status": "in_service"}
+            else:
+                rotated = messagebox.askyesnocancel(
+                    "Rotated Before?",
+                    f"Has the shoe at {asset_id} been rotated before?\n\n"
+                    "Cancel = choose another asset",
+                    parent=root)
+                if rotated is None:
+                    return False
+                PENDING_WRITES["register"] = {
+                    "condition":       "in_use",
+                    "rotation_status": "rotated_once" if rotated else "in_service",
+                }
+            print(f"  → {asset_id} will be registered after the 3rd capture.")
+            return True
+
+        status = shoe.get("rotation_status", "in_service")
+        if status == "retired":
+            messagebox.showwarning(
+                "Shoe Retired",
+                f"{asset_id} has been retired and cannot be inspected.\n"
+                "Please choose another asset.", parent=root)
+            return False
+
+        if status == "not_rotated":
+            done = messagebox.askyesno(
+                "Pending Rotation",
+                f"{asset_id} has been flagged for rotation.\n\nHas the rotation been done?",
+                parent=root)
+            PENDING_WRITES["confirm_rotation"] = bool(done)
+        return True
+    finally:
+        root.destroy()
+
+
 def _commit_session(supabase, asset_id, technician_name):
     """Runs the deferred Supabase writes once all captures are taken:
     shoe registration, rotation confirmation, then the session row.
@@ -1386,7 +1458,13 @@ root.mainloop()
                 print("\n✅ Session complete — all 3 captures saved.")
 
             # ── GUI popup for next asset ───────────────────────
-            next_asset = _get_next_asset_gui(supabase, asset_id)
+            # Keep asking until a usable asset is chosen (or the user quits)
+            while True:
+                next_asset = _get_next_asset_gui(supabase, asset_id)
+                if next_asset is None:
+                    break
+                if _prepare_next_asset(supabase, next_asset):
+                    break
 
             if next_asset is None:
                 print("\n👋 Session ended by user.")
