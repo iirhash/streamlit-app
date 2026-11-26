@@ -23,7 +23,7 @@ import io
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.login import get_supabase
-from core.wear_entry import parse_reading, check_reading, get_severity, get_last_reading, save_reading, severity_box_html
+from core.wear_entry import parse_reading, check_reading, get_severity, get_last_reading, save_reading, severity_box_html, get_rotation_trigger
 from core.yolo_detect import detect_defects, CONFIDENCE_THRESHOLD, SCUFF_MARKS_THRESHOLD, get_status_label, increment_capture_count
 
 # ── LRV data ──────────────────────────────────────────────────
@@ -583,6 +583,9 @@ def show():
         else:
             st.caption("No previous reading for this shoe.")
 
+        rot_mm, season = get_rotation_trigger()
+        st.caption(f"Rotation limit today: **{rot_mm:g} mm** ({season}) · Replace at 5 mm")
+
         text = st.text_input(
             "Depth worn away (mm)",
             key="mc_wear_input",
@@ -595,7 +598,7 @@ def show():
         if err:
             st.error(err)
         elif wear_mm is not None:
-            check = check_reading(wear_mm, last_wear, reset_baseline)
+            check = check_reading(wear_mm, last_wear, reset_baseline, rot_mm)
             if check["level"] == "reject":
                 st.error("🚫 " + check["message"])
             elif check["level"] in ("check_again", "warn"):
